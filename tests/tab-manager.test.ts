@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
+import { markTabComplete, markTabLoading } from './helpers';
 import { AutomationErrorException } from '../types/automation';
 import { sleep } from '../utils/dom-wait';
 import {
@@ -67,7 +68,7 @@ describe('tab-manager (fake browser)', () => {
     await sleep(30);
     for (const tab of await fakeBrowser.tabs.query({})) {
       if (tab.id != null && isGeminiAppUrl(tab.url)) {
-        await fakeBrowser.tabs.update(tab.id, { status: 'complete' });
+        await markTabComplete(tab.id);
       }
     }
     const managed = await pending;
@@ -80,7 +81,7 @@ describe('tab-manager (fake browser)', () => {
 
   it('raises TAB_LOAD_TIMEOUT when a created tab never finishes loading', async () => {
     const tab = await fakeBrowser.tabs.create({ url: GEMINI_APP_URL });
-    await fakeBrowser.tabs.update(tab.id!, { status: 'loading' });
+    await markTabLoading(tab.id!);
     await expect(waitForTabComplete(fakeBrowser, tab.id!, 60)).rejects.toMatchObject({
       code: 'TAB_LOAD_TIMEOUT',
     } satisfies Partial<AutomationErrorException>);

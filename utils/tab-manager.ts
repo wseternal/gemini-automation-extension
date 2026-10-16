@@ -7,9 +7,33 @@
  * is deterministic and unit-testable. The `Browser` object is injected so
  * tests can run against a fake browser.
  */
-import type { Browser, Tabs } from 'wxt/browser';
+import type { Tabs } from 'wxt/browser';
 import { AutomationErrorException } from '../types/automation';
 import { sleep } from './dom-wait';
+
+/**
+ * Structural slice of the extension browser API this module needs.
+ * Satisfied by `wxt/browser`'s `browser` in production and by the
+ * `wxt/testing` fake browser in tests — dependency injection by shape.
+ */
+export interface TabsLike {
+  query(queryInfo: Tabs.QueryQueryInfoType): Promise<Tabs.Tab[]>;
+  get(tabId: number): Promise<Tabs.Tab>;
+  create(createProperties: Tabs.CreateCreatePropertiesType): Promise<Tabs.Tab>;
+  update(tabId: number, updateProperties: Tabs.UpdateUpdatePropertiesType): Promise<Tabs.Tab | undefined>;
+  reload(tabId: number): Promise<void>;
+  sendMessage(tabId: number, message: unknown): Promise<unknown>;
+}
+
+export interface StorageSessionLike {
+  get(keys?: string | string[] | null): Promise<Record<string, unknown>>;
+  set(items: Record<string, unknown>): Promise<void>;
+}
+
+export interface BrowserLike {
+  readonly tabs: TabsLike;
+  readonly storage: { readonly session: StorageSessionLike };
+}
 
 export const GEMINI_APP_URL = 'https://gemini.google.com/app';
 
@@ -49,12 +73,12 @@ export function pickPreferredGeminiTab(tabs: readonly Tabs.Tab[]): Tabs.Tab | nu
 }
 
 /** Locate an existing Gemini app tab, preferring an active one. */
-export async function findGeminiTab(browser: Browser): Promise<Tabs.Tab | null> {
+export async function findGeminiTab(browser: BrowserLike): Promise<Tabs.Tab | null> {
   return pickPreferredGeminiTab(await browser.tabs.query({}));
 }
 
 /** Resolve once the tab reports `status === 'complete'`; typed timeout otherwise. */
-export async function waitForTabComplete(browser: Browser, tabId: number, timeoutMs = 30_000): Promise<void> {
+export async function waitForTabComplete(browser: BrowserLike, tabId: number, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const tab = await browser.tabs.get(tabId);
@@ -71,7 +95,7 @@ export async function waitForTabComplete(browser: Browser, tabId: number, timeou
  * a tab is the fallback, so the user's authenticated session is never
  * re-challenged.
  */
-export async function ensureGeminiTab(browser: Browser, options: EnsureTabOptions = {}): Promise<ManagedTab> {
+export async function ensureGeminiTab(browser: BrowserLike, options: EnsureTabOptions = {}): Promise<ManagedTab> {
   const existing = await findGeminiTab(browser);
   if (existing && typeof existing.id === 'number') {
     return { tabId: existing.id, url: existing.url ?? GEMINI_APP_URL, created: false };

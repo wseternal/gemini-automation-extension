@@ -9,7 +9,7 @@
  * resolutions.
  */
 import { AutomationErrorException, DEFAULT_STREAM_TIMEOUT_MS } from '../types/automation';
-import { queryAll, queryFirst, sleep, WaitTimeoutError, type WaitOptions } from './dom-wait';
+import { queryAll, queryFirst, sleep, type WaitOptions } from './dom-wait';
 import { SELECTORS } from './selectors';
 
 export interface ExtractionOptions extends WaitOptions {
@@ -86,6 +86,3 @@ export async function extractResponse(root: ParentNode, options: ExtractionOptio
     await sleep(intervalMs);
   }
 }
-
-// Re-export for consumers that only know this module.
-export { WaitTimeoutError };

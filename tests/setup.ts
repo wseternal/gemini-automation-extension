@@ -18,7 +18,7 @@ class DataTransferItemListShim {
 
 export class DataTransferShim {
   readonly filesInternal: File[] = [];
-  readonly items: DataTransferItemListShim;
+  readonly items: DataTransferItemList;
   effectAllowed = 'all';
   dropEffect = 'none';
   constructor() {
