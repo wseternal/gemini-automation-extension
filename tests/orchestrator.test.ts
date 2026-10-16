@@ -58,7 +58,9 @@ describe('runAutomation orchestrator', () => {
 
     const res = await runAutomation(document, request(), { tabId: 1 }, FAST);
     expect(res.status).toBe('ok');
-    if (res.status === 'ok') expect(res.meta.steps).toEqual(['fill-prompt', 'submit', 'extract']);
+    // temp-chat step completes via idempotent verification (already active);
+    // attach-file is skipped because no file was provided.
+    if (res.status === 'ok') expect(res.meta.steps).toEqual(['temporary-chat', 'fill-prompt', 'submit', 'extract']);
   });
 
   it('maps step failures to typed error responses without throwing', async () => {
