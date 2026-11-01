@@ -9,6 +9,7 @@
  * resolutions.
  */
 import { AutomationErrorException, DEFAULT_STREAM_TIMEOUT_MS } from '../types/automation';
+import { convertDomToMarkdown } from './dom-to-markdown';
 import { queryAll, queryFirst, sleep, type WaitOptions } from './dom-wait';
 import { SELECTORS } from './selectors';
 
@@ -23,6 +24,8 @@ export interface ExtractionOptions extends WaitOptions {
 
 export interface ExtractionResult {
   readonly text: string;
+  /** Markdown representation of the response (structured content). */
+  readonly markdown: string;
   /** True when the stop-generation indicator was observed at least once. */
   readonly streamingDetected: boolean;
 }
@@ -32,6 +35,12 @@ export function latestResponseText(root: ParentNode): string {
   const containers = queryAll(root, SELECTORS.responseContainer);
   const latest = containers[containers.length - 1];
   return latest?.textContent?.trim() ?? '';
+}
+
+/** Latest response container element (or null). */
+function latestResponseContainer(root: ParentNode): Element | null {
+  const containers = queryAll(root, SELECTORS.responseContainer);
+  return containers[containers.length - 1] ?? null;
 }
 
 export function isStreaming(root: ParentNode): boolean {
@@ -62,7 +71,10 @@ export async function extractResponse(root: ParentNode, options: ExtractionOptio
     if (containerSeen && !streaming && text.length > 0) {
       stableCount = text === lastText ? stableCount + 1 : 1;
       if (stableCount >= stabilityPolls) {
-        return { text, streamingDetected };
+        // Extract structured markdown from the DOM alongside plain text.
+        const container = latestResponseContainer(root);
+        const markdown = container ? convertDomToMarkdown(container) : text;
+        return { text, markdown, streamingDetected };
       }
     } else {
       stableCount = 0;
