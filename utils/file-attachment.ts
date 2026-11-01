@@ -1,20 +1,39 @@
 /**
  * utils/file-attachment.ts — ingest a file payload into Gemini's prompt bar.
  *
- * Primary path: synthesize a native drag-and-drop sequence (`dragenter` →
- * `dragover` → `drop`) carrying a real `DataTransfer` with the file.
- * Fallback: populate the uploader's hidden `<input type="file">` and fire
- * `change`. Either way, resolution is gated on Gemini *registering* the
- * attachment (chip/preview visible) — the caller is blocked until then, so
- * the prompt can never submit before the upload is in.
+ * The content script runs in Chrome's **isolated world**, where synthetic
+ * DataTransfer objects don't properly cross to the page's main-world
+ * JavaScript context. Gemini's Angular drop-zone handler receives an empty
+ * or inaccessible `dataTransfer.files`, so the upload silently fails.
+ *
+ * Solution: delegate file upload to a **main-world content script**
+ * (upload.world.ts) that runs in the page's JS context. Communication
+ * happens via `window.postMessage`:
+ *   1. This module posts a `gemini-bridge/upload` message with file data
+ *   2. The main-world script performs the upload using native DataTransfer
+ *   3. It responds with `gemini-bridge/upload-result`
+ *   4. We wait for Gemini to register the attachment (chip/preview visible)
+ *
+ * Fallback: isolated-world drop event dispatch (may work in some browsers
+ * where the cross-world DataTransfer boundary is less strict).
  */
 import { AutomationErrorException, validateFilePayload, type FilePayload } from '../types/automation';
-import { queryFirst, waitForCondition, type WaitOptions } from './dom-wait';
+import { queryFirst, sleep, waitForCondition, type WaitOptions } from './dom-wait';
 import { SELECTORS } from './selectors';
 
 export interface AttachOptions extends WaitOptions {
-  /** Budget for each registration confirmation wait. Default 15s. */
+  /** Budget for the registration confirmation wait. Default 15s. */
   readonly registrationTimeoutMs?: number;
+}
+
+const LOG_PREFIX = '[GeminiBridge:attach]';
+
+function log(...args: unknown[]): void {
+  console.log(LOG_PREFIX, ...args);
+}
+
+function logWarn(...args: unknown[]): void {
+  console.warn(LOG_PREFIX, ...args);
 }
 
 /** Materialize a validated payload into a `File`. Typed rejection otherwise. */
@@ -51,10 +70,13 @@ export function createTransferEvent(type: 'dragenter' | 'dragover' | 'drop', dat
   return event;
 }
 
-/** Dispatch the full native drop sequence on `target`. */
-export function dispatchDropSequence(target: Element, dataTransfer: DataTransfer): void {
-  for (const type of ['dragenter', 'dragover', 'drop'] as const) {
+/** Dispatch the full native drop sequence on `target` with realistic timing. */
+export async function dispatchDropSequence(target: Element, dataTransfer: DataTransfer): Promise<void> {
+  dataTransfer.dropEffect = 'copy';
+  const types = ['dragenter', 'dragover', 'drop'] as const;
+  for (const type of types) {
     target.dispatchEvent(createTransferEvent(type, dataTransfer));
+    if (type !== 'drop') await sleep(50);
   }
 }
 
@@ -65,7 +87,19 @@ export function populateFileInput(input: HTMLInputElement, dataTransfer: DataTra
   } catch {
     Object.defineProperty(input, 'files', { value: dataTransfer.files, configurable: true });
   }
+  input.dispatchEvent(new Event('focus', { bubbles: true }));
+  input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+  try {
+    const dropEvent = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer });
+    if (dropEvent.dataTransfer == null) {
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+    }
+    input.dispatchEvent(dropEvent);
+  } catch {
+    // DragEvent constructor unavailable — input/change events already dispatched.
+  }
+  input.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
 /** Probe: has Gemini registered an attachment (chip/preview visible)? */
@@ -78,6 +112,71 @@ function toAttachError(e: unknown): AutomationErrorException {
   return new AutomationErrorException('ATTACH_FAILED', e instanceof Error ? e.message : String(e), 'attach-file');
 }
 
+// ---------------------------------------------------------------------------
+// Main-world bridge via window.postMessage
+// ---------------------------------------------------------------------------
+
+interface UploadRequest {
+  type: 'gemini-bridge/upload';
+  id: string;
+  dataBase64: string;
+  name: string;
+  mimeType: string;
+}
+
+interface UploadResult {
+  type: 'gemini-bridge/upload-result';
+  id: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Request the main-world content script to perform the file upload.
+ * Returns the result from the main world, or times out.
+ */
+function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promise<{ ok: boolean; error?: string }> {
+  const id = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve) => {
+    const handler = (event: MessageEvent) => {
+      // Only accept messages from the same window.
+      if (event.source !== window) return;
+
+      const data = event.data as UploadResult | undefined;
+      if (
+        data?.type === 'gemini-bridge/upload-result' &&
+        data.id === id
+      ) {
+        window.removeEventListener('message', handler);
+        clearTimeout(timer);
+        resolve({ ok: data.ok, error: data.error });
+      }
+    };
+
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve({ ok: false, error: 'main-world upload request timed out' });
+    }, timeoutMs);
+
+    window.addEventListener('message', handler);
+
+    const request: UploadRequest = {
+      type: 'gemini-bridge/upload',
+      id,
+      dataBase64: payload.dataBase64,
+      name: payload.name,
+      mimeType: payload.mimeType,
+    };
+
+    window.postMessage(request, '*');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
 /**
  * Attach `payload` and resolve only after Gemini confirms registration.
  * Throws `INVALID_PAYLOAD`, `ATTACH_FAILED`, or `ATTACH_NOT_REGISTERED`.
@@ -86,46 +185,78 @@ export async function attachFile(root: ParentNode, payload: FilePayload, options
   const registrationTimeoutMs = options.registrationTimeoutMs ?? 15_000;
   const wait = { timeoutMs: registrationTimeoutMs, intervalMs: options.intervalMs ?? 100 };
 
-  // Guardrails run before any DOM interaction.
+  // Guardrails: validate payload before any DOM interaction.
+  const verdict = validateFilePayload(payload);
+  if (!verdict.ok) {
+    throw new AutomationErrorException('INVALID_PAYLOAD', `File payload rejected: ${verdict.reason}`, 'attach-file');
+  }
+
+  log(`Starting attachment for "${payload.name}" (${payload.mimeType}, ${payload.byteLength} bytes)`);
+
+  // ---- Strategy 1: Main-world bridge via postMessage ----
+  // The main-world content script (upload.world.ts) runs in the page's JS
+  // context where DataTransfer is a native object.
+  log('Strategy 1: Main-world bridge via postMessage');
+  const injectionResult = await requestMainWorldUpload(payload, 10_000);
+  log(`Main-world bridge result: ok=${injectionResult.ok}, error=${injectionResult.error ?? 'none'}`);
+
+  if (injectionResult.ok) {
+    try {
+      await waitForCondition(
+        () => isAttachmentRegistered(root) || null,
+        'attachment registration (main-world)',
+        wait,
+      );
+      log('SUCCESS — attachment registered after main-world upload');
+      return;
+    } catch {
+      log('Main-world upload executed but attachment not registered within timeout');
+    }
+  }
+
+  // ---- Strategy 2: Isolated-world drop (fallback) ----
+  // In case the main-world bridge didn't work, try the traditional
+  // isolated-world approach as a fallback.
+  log('Strategy 2: Isolated-world drop fallback');
   const file = decodeFilePayload(payload);
   const dataTransfer = createFileDataTransfer(file);
-
   const dropZone = queryFirst(root, SELECTORS.dropZone);
-  const fileInput = queryFirst(root, SELECTORS.fileInput);
-  if (!dropZone && !(fileInput instanceof HTMLInputElement)) {
-    throw new AutomationErrorException(
-      'ATTACH_FAILED',
-      'Neither a drop zone nor a file input exists on the page',
-      'attach-file',
-    );
-  }
 
-  // Primary: synthesized drag-and-drop onto the prompt area.
   if (dropZone) {
-    dispatchDropSequence(dropZone, dataTransfer);
+    log(`Drop zone found: ${dropZone.tagName}.${dropZone.className.slice(0, 60)}`);
+    await dispatchDropSequence(dropZone, dataTransfer);
     try {
-      await waitForCondition(() => isAttachmentRegistered(root) || null, 'attachment registration (drop)', wait);
+      await waitForCondition(
+        () => isAttachmentRegistered(root) || null,
+        'attachment registration (isolated-world)',
+        wait,
+      );
+      log('SUCCESS — attachment registered after isolated-world drop');
       return;
     } catch {
-      // Fall through to the hidden-input path.
+      log('Isolated-world drop also failed');
     }
   }
 
-  // Fallback: populate the uploader's hidden file input.
+  // ---- Strategy 3: File input fallback ----
+  const fileInput = queryFirst(root, SELECTORS.fileInput);
   if (fileInput instanceof HTMLInputElement) {
+    log('Strategy 3: File input fallback');
     try {
       populateFileInput(fileInput, dataTransfer);
-    } catch (e) {
-      throw toAttachError(e);
-    }
-    try {
-      await waitForCondition(() => isAttachmentRegistered(root) || null, 'attachment registration (input)', wait);
+      await waitForCondition(
+        () => isAttachmentRegistered(root) || null,
+        'attachment registration (input)',
+        wait,
+      );
+      log('SUCCESS — attachment registered via file input');
       return;
     } catch {
-      // Fall through to the typed not-registered error below.
+      log('File input fallback also failed');
     }
   }
 
+  logWarn('All strategies exhausted — attachment not registered');
   throw new AutomationErrorException(
     'ATTACH_NOT_REGISTERED',
     `Gemini did not register attachment "${payload.name}" within the registration timeout`,

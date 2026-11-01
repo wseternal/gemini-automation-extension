@@ -59,7 +59,8 @@ export async function runAutomation(
   };
 
   try {
-    if (request.temporaryChat !== false) {
+    // Temporary chat only when explicitly requested AND no specific tab targeted.
+    if (request.temporaryChat && request.targetTabId === undefined) {
       await ensureTemporaryChat(root, options.waits);
       steps.push('temporary-chat');
     }
@@ -82,7 +83,7 @@ export async function runAutomation(
       durationMs: Date.now() - startedAt,
       streamingDetected: result.streamingDetected,
       steps,
-    });
+    }, result.markdown);
   } catch (e) {
     return fail(e);
   }

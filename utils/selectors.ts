@@ -30,6 +30,9 @@ export const SELECTORS = {
     'rich-textarea div[contenteditable="true"]',
     'div[contenteditable="true"][role="textbox"]',
     'div[contenteditable="true"][aria-label]',
+    '.initial-input-area-container textarea',
+    '.text-input-field textarea',
+    '[data-node-type="input-area"] textarea',
   ],
 
   /** Send control. */
@@ -38,6 +41,7 @@ export const SELECTORS = {
     'button[aria-label*="Send message"]',
     'button[data-mat-icon-name="send"]',
     'button[aria-label*="Send"]',
+    '.send-icon',
   ],
 
   /** Stop-generation indicator — present only while the model streams. */
@@ -53,25 +57,47 @@ export const SELECTORS = {
 
   /** Attachment chip / preview shown once Gemini has registered an upload. */
   attachmentChip: [
+    'uploader-file-preview',
+    '.file-preview-chip',
+    '.file-preview-container',
+    'gem-attachment',
+    '.attachment-preview-wrapper',
     '[class*="uploader-chip"]',
     '[class*="uploaded-file"]',
     '[class*="file-preview"]',
     '[class*="attachment"]',
+    '[data-test-id*="attachment"]',
+    '[class*="file-chip"]',
+    '[class*="upload-chip"]',
+    '[aria-label*="attachment"]',
+    '[aria-label*="Remove file"]',
   ],
 
   /** Rendered model response containers (latest one wins). */
   responseContainer: [
-    '.model-response-text',
     'message-content',
+    '[data-test-id="model-response"]',
+    '.model-response-text',
     '[class*="response-container"]',
     '[class*="model-response"]',
+    '[class*="response-text"]',
+    'div[class*="markdown"]',
+    '.user-query-turn .model-response',
+    'chat-message[author="model"]',
+    'turn-content[data-author="model"]',
   ],
 
   /** Drop target for synthesized drag-and-drop file ingestion. */
   dropZone: [
+    '[xapfileselectordropzone]',
+    '[file-drop-zone]',
+    '.xap-uploader-dropzone',
+    '.text-input-field',
+    '[data-node-type="input-area"]',
+    '.initial-input-area-container',
+    '.input-area-container',
     '[class*="input-area"]',
     '[class*="prompt-area"]',
-    'div.ql-editor[contenteditable="true"]',
     'main',
   ],
 } as const;

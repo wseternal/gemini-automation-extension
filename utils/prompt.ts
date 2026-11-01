@@ -35,6 +35,14 @@ export async function fillPrompt(root: ParentNode, text: string, options: Prompt
 
   editor.focus();
 
+  // Textarea path: set value directly and dispatch framework events.
+  if (editor instanceof HTMLTextAreaElement) {
+    editor.value = text;
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+
   let inserted = false;
   try {
     // Select existing content, then replace it with the new prompt.

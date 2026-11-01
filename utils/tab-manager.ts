@@ -23,6 +23,7 @@ export interface TabsLike {
   update(tabId: number, updateProperties: Tabs.UpdateUpdatePropertiesType): Promise<Tabs.Tab | undefined>;
   reload(tabId: number): Promise<void>;
   sendMessage(tabId: number, message: unknown): Promise<unknown>;
+  remove(tabIds: number | readonly number[]): Promise<void>;
 }
 
 export interface StorageSessionLike {
@@ -41,6 +42,8 @@ export interface ManagedTab {
   readonly tabId: number;
   readonly url: string;
   readonly created: boolean;
+  /** True when the tab was opened by automation and should be closed after. */
+  readonly shouldCloseAfter: boolean;
 }
 
 export interface EnsureTabOptions {
@@ -98,13 +101,53 @@ export async function waitForTabComplete(browser: BrowserLike, tabId: number, ti
 export async function ensureGeminiTab(browser: BrowserLike, options: EnsureTabOptions = {}): Promise<ManagedTab> {
   const existing = await findGeminiTab(browser);
   if (existing && typeof existing.id === 'number') {
-    return { tabId: existing.id, url: existing.url ?? GEMINI_APP_URL, created: false };
+    return { tabId: existing.id, url: existing.url ?? GEMINI_APP_URL, created: false, shouldCloseAfter: false };
   }
 
-  const created = await browser.tabs.create({ url: GEMINI_APP_URL, active: true });
+  const created = await browser.tabs.create({ url: GEMINI_APP_URL, active: false });
   if (typeof created.id !== 'number') {
     throw new AutomationErrorException('NO_GEMINI_TAB', 'Could not create a Gemini tab');
   }
   await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
-  return { tabId: created.id, url: GEMINI_APP_URL, created: true };
+  return { tabId: created.id, url: GEMINI_APP_URL, created: true, shouldCloseAfter: true };
+}
+
+/**
+ * Resolve the tab for an automation run. When `targetTabId` is given the
+ * request targets a specific user-chosen conversation — the tab is verified
+ * but never created/closed. Otherwise falls back to
+ * {@link ensureGeminiTab} (new tabs open in the background and are flagged
+ * for cleanup after the run).
+ */
+export async function resolveTargetTab(
+  browser: BrowserLike,
+  targetTabId: number | undefined,
+  options: EnsureTabOptions = {},
+): Promise<ManagedTab> {
+  if (targetTabId !== undefined) {
+    let tab: Tabs.Tab;
+    try {
+      tab = await browser.tabs.get(targetTabId);
+    } catch {
+      throw new AutomationErrorException('NO_GEMINI_TAB', `Target tab ${targetTabId} not found`);
+    }
+    if (!isGeminiAppUrl(tab.url)) {
+      throw new AutomationErrorException('NO_GEMINI_TAB', `Tab ${targetTabId} is not a Gemini conversation`);
+    }
+    return { tabId: targetTabId, url: tab.url ?? GEMINI_APP_URL, created: false, shouldCloseAfter: false };
+  }
+
+  // No target — open a fresh background tab.
+  const created = await browser.tabs.create({ url: GEMINI_APP_URL, active: false });
+  if (typeof created.id !== 'number') {
+    throw new AutomationErrorException('NO_GEMINI_TAB', 'Could not create a Gemini tab');
+  }
+  await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
+  return { tabId: created.id, url: GEMINI_APP_URL, created: true, shouldCloseAfter: true };
+}
+
+/** List all open Gemini app tabs with lightweight metadata. */
+export async function listGeminiTabs(browser: BrowserLike): Promise<Tabs.Tab[]> {
+  const allTabs = await browser.tabs.query({});
+  return allTabs.filter((tab) => isGeminiAppUrl(tab.url));
 }
