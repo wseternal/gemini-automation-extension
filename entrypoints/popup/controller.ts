@@ -13,17 +13,25 @@ import {
   type AutomationRunRequest,
   type AutomationRunResponse,
   type FilePayload,
+  type TabInfo,
 } from '../../types/automation';
 
 export type PopupPhase = 'idle' | 'running' | 'success' | 'error';
 
 export interface PopupTransport {
   run(request: AutomationRunRequest): Promise<AutomationRunResponse>;
+  openHistory(): void;
+  listGeminiTabs(): Promise<TabInfo[]>;
 }
 
 const TEMPLATE = `
   <h1 class="title">Gemini Automation Bridge</h1>
   <form id="ga-form" novalidate>
+    <label class="label" for="ga-tab-select">Conversation</label>
+    <select id="ga-tab-select" disabled>
+      <option value="new">+ New conversation</option>
+    </select>
+
     <label class="label" for="ga-prompt">Prompt</label>
     <textarea id="ga-prompt" rows="4" placeholder="Ask Gemini about the attachment…"></textarea>
     <p id="ga-prompt-error" class="field-error" hidden>Enter a prompt first.</p>
@@ -34,6 +42,7 @@ const TEMPLATE = `
 
     <button id="ga-run" type="submit" class="primary">Run in Gemini</button>
   </form>
+  <button id="ga-history-link" type="button" class="link-button">History</button>
 
   <section id="ga-status" role="status" aria-live="polite" hidden>
     <span class="spinner" aria-hidden="true"></span>
@@ -75,7 +84,9 @@ export class PopupController {
     this.againButton.addEventListener('click', () => this.setPhase('idle'));
     this.copyButton.addEventListener('click', () => void this.copyResult());
     this.fileInput.addEventListener('change', () => this.renderFileMeta());
+    this.historyLink.addEventListener('click', () => this.openHistoryPage());
     this.setPhase('idle');
+    void this.loadTabs();
   }
 
   private qs<T extends HTMLElement>(selector: string): T {
@@ -86,6 +97,9 @@ export class PopupController {
 
   private get form(): HTMLFormElement {
     return this.qs('#ga-form');
+  }
+  private get tabSelect(): HTMLSelectElement {
+    return this.qs('#ga-tab-select');
   }
   private get promptInput(): HTMLTextAreaElement {
     return this.qs('#ga-prompt');
@@ -126,6 +140,9 @@ export class PopupController {
   private get copyButton(): HTMLButtonElement {
     return this.qs('#ga-copy');
   }
+  private get historyLink(): HTMLButtonElement {
+    return this.qs('#ga-history-link');
+  }
 
   getPhase(): PopupPhase {
     return this.phase;
@@ -136,10 +153,16 @@ export class PopupController {
     this.statusSection.hidden = phase !== 'running';
     this.resultSection.hidden = phase !== 'success';
     this.errorSection.hidden = phase !== 'error';
+
+    const showForm = phase === 'idle' || phase === 'running' || phase === 'success' || phase === 'error';
+    this.root.querySelector<HTMLElement>('#ga-form')!.hidden = !showForm;
+    this.historyLink.hidden = !showForm;
+
     this.form.classList.toggle('dimmed', phase === 'running');
     this.runButton.disabled = phase === 'running';
     this.promptInput.disabled = phase === 'running';
     this.fileInput.disabled = phase === 'running';
+    this.tabSelect.disabled = phase === 'running';
     if (phase === 'error') this.errorText.textContent = this.lastError;
   }
 
@@ -156,6 +179,26 @@ export class PopupController {
       dataBase64: bytesToBase64(bytes),
       byteLength: bytes.byteLength,
     };
+  }
+
+  /** Populate the conversation dropdown from open Gemini tabs. */
+  private async loadTabs(): Promise<void> {
+    try {
+      const tabs = await this.transport.listGeminiTabs();
+      const select = this.tabSelect;
+      select.innerHTML = '<option value="new">+ New conversation</option>';
+      for (const tab of tabs) {
+        const opt = document.createElement('option');
+        opt.value = String(tab.tabId);
+        const shortTitle = tab.title.length > 40 ? tab.title.slice(0, 40) + '…' : tab.title;
+        opt.textContent = shortTitle || tab.url;
+        select.appendChild(opt);
+      }
+      select.disabled = false;
+    } catch {
+      // If tab listing fails, keep the dropdown with just "New conversation".
+      this.tabSelect.disabled = false;
+    }
   }
 
   /** Run one automation round. Public (and awaitable) for tests. */
@@ -181,10 +224,14 @@ export class PopupController {
       }
     }
 
+    const selectedValue = this.tabSelect.value;
+    const targetTabId = selectedValue === 'new' ? undefined : Number(selectedValue);
+
     const request: AutomationRunRequest = {
       kind: AUTOMATION_RUN_REQUEST,
       prompt,
       ...(filePayload ? { file: filePayload } : {}),
+      ...(targetTabId !== undefined ? { targetTabId } : {}),
     };
 
     this.setPhase('running');
@@ -214,6 +261,11 @@ export class PopupController {
     } catch {
       this.copyButton.textContent = 'Copy failed';
     }
+  }
+
+  /** Open the full-page history view in a new tab. */
+  private openHistoryPage(): void {
+    this.transport.openHistory();
   }
 }
 

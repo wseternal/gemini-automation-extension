@@ -12,6 +12,8 @@
 
 export const AUTOMATION_RUN_REQUEST = 'gemini-automation/run' as const;
 export const AUTOMATION_RUN_RESPONSE = 'gemini-automation/result' as const;
+export const TAB_LIST_REQUEST = 'gemini-automation/list-tabs' as const;
+export const TAB_LIST_RESPONSE = 'gemini-automation/tabs' as const;
 
 // ---------------------------------------------------------------------------
 // File payload guardrails (security gate 8)
@@ -56,10 +58,32 @@ export interface AutomationRunRequest {
   readonly prompt: string;
   /** Optional file to attach before submitting. */
   readonly file?: FilePayload;
-  /** Whether to force Temporary Chat mode first. Defaults to `true`. */
+  /** Whether to force Temporary Chat mode first. Defaults to `false`. */
   readonly temporaryChat?: boolean;
   /** Overall streaming timeout in ms. Defaults to {@link DEFAULT_STREAM_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
+  /** Specific Gemini tab to reuse (skip tab search/temp-chat). */
+  readonly targetTabId?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Tab list (popup → background)
+// ---------------------------------------------------------------------------
+
+/** Lightweight descriptor of an open Gemini tab. */
+export interface TabInfo {
+  readonly tabId: number;
+  readonly title: string;
+  readonly url: string;
+}
+
+export interface TabListRequest {
+  readonly kind: typeof TAB_LIST_REQUEST;
+}
+
+export interface TabListResponse {
+  readonly kind: typeof TAB_LIST_RESPONSE;
+  readonly tabs: readonly TabInfo[];
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +125,8 @@ export interface AutomationRunOk {
   readonly status: 'ok';
   /** Complete rendered response text, captured after streaming finished. */
   readonly text: string;
+  /** Markdown representation of the response (structured content for rich rendering). */
+  readonly markdown?: string;
   readonly meta: AutomationRunMeta;
 }
 
@@ -119,8 +145,8 @@ export const DEFAULT_STREAM_TIMEOUT_MS = 120_000;
 // Constructors
 // ---------------------------------------------------------------------------
 
-export function ok(text: string, meta: AutomationRunMeta): AutomationRunOk {
-  return { kind: AUTOMATION_RUN_RESPONSE, status: 'ok', text, meta };
+export function ok(text: string, meta: AutomationRunMeta, markdown?: string): AutomationRunOk {
+  return { kind: AUTOMATION_RUN_RESPONSE, status: 'ok', text, ...(markdown ? { markdown } : {}), meta };
 }
 
 export function err(code: AutomationErrorCode, message: string, step?: AutomationStep): AutomationRunError {
@@ -173,7 +199,12 @@ export function isAutomationRunRequest(msg: unknown): msg is AutomationRunReques
   if (msg.file !== undefined && !isFilePayload(msg.file)) return false;
   if (msg.temporaryChat !== undefined && typeof msg.temporaryChat !== 'boolean') return false;
   if (msg.timeoutMs !== undefined && (typeof msg.timeoutMs !== 'number' || msg.timeoutMs <= 0)) return false;
+  if (msg.targetTabId !== undefined && (typeof msg.targetTabId !== 'number' || msg.targetTabId <= 0)) return false;
   return true;
+}
+
+export function isTabListRequest(msg: unknown): msg is TabListRequest {
+  return isRecord(msg) && msg.kind === TAB_LIST_REQUEST;
 }
 
 const ERROR_CODES: readonly AutomationErrorCode[] = [
@@ -221,4 +252,32 @@ export class AutomationErrorException extends Error {
   toAutomationError(): AutomationError {
     return this.step ? { code: this.code, message: this.message, step: this.step } : { code: this.code, message: this.message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// History entry (persisted to browser.storage.local)
+// ---------------------------------------------------------------------------
+
+/** Attachment metadata stored with a history entry — no base64 data. */
+export interface HistoryAttachmentMeta {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly byteLength: number;
+}
+
+/** A single automation run persisted to local storage. */
+export interface HistoryEntry {
+  readonly id: string;
+  readonly timestamp: number;
+  readonly prompt: string;
+  readonly status: 'ok' | 'error';
+  /** Response text (empty string when status is 'error'). */
+  readonly responseText: string;
+  /** Markdown representation of the response for rich rendering (optional, populated for newer entries). */
+  readonly responseMarkdown?: string;
+  readonly errorCode?: string;
+  readonly errorMessage?: string;
+  readonly attachment?: HistoryAttachmentMeta;
+  /** Gemini conversation URL captured after the run (e.g. https://gemini.google.com/app/…). */
+  readonly conversationUrl?: string;
 }

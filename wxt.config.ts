@@ -7,6 +7,13 @@ import { defineConfig } from 'wxt';
 //   - storage:   hand off the latest automation result via storage.session
 //   - host:      https://gemini.google.com/* only — the automation surface
 export default defineConfig({
+  runner: {
+    chromiumArgs: [
+      // Use your real Chrome profile so Web Store extensions are available.
+      // Close Chrome first to avoid profile-lock conflicts.
+      // '--user-data-dir=/Users/jiangzhaohua/Library/Application Support/Google/Chrome',
+    ],
+  },
   manifest: {
     name: 'Gemini Automation Bridge',
     short_name: 'GeminiBridge',

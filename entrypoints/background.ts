@@ -14,10 +14,15 @@ import {
   err,
   isAutomationRunRequest,
   isAutomationRunResponse,
+  isTabListRequest,
+  TAB_LIST_RESPONSE,
   type AutomationRunRequest,
   type AutomationRunResponse,
+  type HistoryEntry,
+  type TabListResponse,
 } from '../types/automation';
-import { ensureGeminiTab, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
+import { resolveTargetTab, listGeminiTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
+import { generateHistoryId, saveHistoryEntry } from '../utils/history-storage';
 
 export const LAST_RESULT_KEY = 'gemini-automation/last-result' as const;
 
@@ -42,9 +47,11 @@ export async function dispatchAutomation(
   request: AutomationRunRequest,
   options: DispatchOptions = {},
 ): Promise<AutomationRunResponse> {
+  let managed: Awaited<ReturnType<typeof resolveTargetTab>> | undefined;
   let tabId: number | undefined;
+  let succeeded = false;
   try {
-    const managed = await ensureGeminiTab(browserApi, { loadTimeoutMs: options.loadTimeoutMs });
+    managed = await resolveTargetTab(browserApi, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs });
     tabId = managed.tabId;
 
     let raw: unknown;
@@ -67,23 +74,92 @@ export async function dispatchAutomation(
 
     const stamped = withTabId(raw, tabId);
     await browserApi.storage.session.set({ [LAST_RESULT_KEY]: stamped });
+    const conversationUrl = await getTabUrl(browserApi, tabId);
+    await persistHistory(request, stamped, conversationUrl);
+    succeeded = stamped.status === 'ok';
     return stamped;
   } catch (e) {
     if (e instanceof AutomationErrorException) {
       const response = err(e.code, e.message, e.step);
-      return tabId === undefined ? response : withTabId(response, tabId);
+      const stamped = tabId === undefined ? response : withTabId(response, tabId);
+      const conversationUrl = tabId !== undefined ? await getTabUrl(browserApi, tabId) : undefined;
+      await persistHistory(request, stamped, conversationUrl);
+      return stamped;
     }
     const message = e instanceof Error ? e.message : String(e);
     const response = err('INTERNAL', `automation dispatch failed: ${message}`);
-    return tabId === undefined ? response : withTabId(response, tabId);
+    const stamped = tabId === undefined ? response : withTabId(response, tabId);
+    const conversationUrl = tabId !== undefined ? await getTabUrl(browserApi, tabId) : undefined;
+    await persistHistory(request, stamped, conversationUrl);
+    return stamped;
+  } finally {
+    // Only close the background tab on success; keep it open on error
+    // so the user can inspect what went wrong.
+    if (succeeded && managed?.shouldCloseAfter) {
+      await browserApi.tabs.remove(managed.tabId).catch(() => undefined);
+    }
   }
 }
 
 export default defineBackground(() => {
   wxtBrowser.runtime.onMessage.addListener(
-    (message: unknown, _sender: Runtime.MessageSender): Promise<AutomationRunResponse> | undefined => {
+    (message: unknown, _sender: Runtime.MessageSender): Promise<AutomationRunResponse | TabListResponse> | undefined => {
+      if (isTabListRequest(message)) return handleTabList(wxtBrowser);
       if (!isAutomationRunRequest(message)) return undefined;
       return dispatchAutomation(wxtBrowser, message);
     },
   );
 });
+
+/** Return lightweight descriptors of all open Gemini tabs. */
+async function handleTabList(browserApi: BrowserLike): Promise<TabListResponse> {
+  const tabs = await listGeminiTabs(browserApi);
+  return {
+    kind: TAB_LIST_RESPONSE,
+    tabs: tabs
+      .filter((t): t is typeof t & { id: number } => typeof t.id === 'number')
+      .map((t) => ({ tabId: t.id, title: t.title ?? t.url ?? '', url: t.url ?? '' })),
+  };
+}
+
+/** Build a HistoryEntry from the request + response and persist it. */
+async function persistHistory(
+  request: AutomationRunRequest,
+  response: AutomationRunResponse,
+  conversationUrl?: string,
+): Promise<void> {
+  const entry: HistoryEntry = {
+    id: generateHistoryId(),
+    timestamp: Date.now(),
+    prompt: request.prompt,
+    status: response.status,
+    responseText: response.status === 'ok' ? response.text : '',
+    ...(response.status === 'ok' && response.markdown ? { responseMarkdown: response.markdown } : {}),
+    ...(response.status === 'error'
+      ? { errorCode: response.error.code, errorMessage: response.error.message }
+      : {}),
+    ...(request.file
+      ? {
+          attachment: {
+            name: request.file.name,
+            mimeType: request.file.mimeType,
+            byteLength: request.file.byteLength,
+          },
+        }
+      : {}),
+    ...(conversationUrl ? { conversationUrl } : {}),
+  };
+  await saveHistoryEntry(entry).catch(() => {
+    /* storage write failure must not break the automation response */
+  });
+}
+
+/** Retrieve the current URL of a tab, returning undefined on failure. */
+async function getTabUrl(browserApi: BrowserLike, tabId: number): Promise<string | undefined> {
+  try {
+    const tab = await browserApi.tabs.get(tabId);
+    return tab.url;
+  } catch {
+    return undefined;
+  }
+}

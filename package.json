@@ -7,14 +7,15 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
-    "happy-dom": "^15.11.0",
     "typescript": "^5.6.3",
     "vitest": "^2.1.9",
     "wxt": "^0.19.29"
+  },
+  "dependencies": {
+    "marked": "^18.1.2"
   }
 }
