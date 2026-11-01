@@ -16,7 +16,7 @@ import { SELECTORS } from './selectors';
 export interface ExtractionOptions extends WaitOptions {
   /** Overall streaming budget. Default {@link DEFAULT_STREAM_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
-  /** Wait for the response container to first appear. Default 15s. */
+  /** Wait for the response container to first appear. Default 60s. */
   readonly kickoffTimeoutMs?: number;
   /** Consecutive identical snapshots required before resolving. Default 2. */
   readonly stabilityPolls?: number;
@@ -51,7 +51,7 @@ export async function extractResponse(root: ParentNode, options: ExtractionOptio
   const timeoutMs = options.timeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? 250;
   const stabilityPolls = options.stabilityPolls ?? 2;
-  const kickoffTimeoutMs = options.kickoffTimeoutMs ?? 15_000;
+  const kickoffTimeoutMs = options.kickoffTimeoutMs ?? 60_000;
 
   // Wait for the response container to appear at all.
   const deadline = Date.now() + timeoutMs;
