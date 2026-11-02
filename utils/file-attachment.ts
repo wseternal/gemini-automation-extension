@@ -133,6 +133,11 @@ function requestMainWorldUpload(
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; error?: string }> {
+  // Handle pre-aborted signal immediately.
+  if (signal?.aborted) {
+    return Promise.resolve({ ok: false, error: 'upload aborted by caller' });
+  }
+
   const id = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const nonce = `nonce_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
