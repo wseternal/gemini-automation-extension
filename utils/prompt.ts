@@ -1,11 +1,11 @@
 /**
- * utils/prompt.ts — populate Gemini's rich-text prompt editor and dispatch
+ * utils/prompt.ts — populate the LLM prompt editor and dispatch
  * the submission event. Text injection is strictly DOM-safe (`textContent`,
  * never `innerHTML` with caller content — security gate 8).
  */
 import { AutomationErrorException } from '../types/automation';
+import type { ProviderSelectors } from '../types/provider';
 import { queryFirst, waitForCondition, waitForElement, WaitTimeoutError, type WaitOptions } from './dom-wait';
-import { SELECTORS } from './selectors';
 
 export interface PromptOptions extends WaitOptions {
   /** How long to wait for evidence that generation kicked off. Default 8s. */
@@ -22,10 +22,15 @@ function toPromptError(code: 'PROMPT_NOT_FOUND' | 'SUBMIT_FAILED', e: unknown, s
  * (keeps Quill-style editors' internal state in sync); falls back to direct
  * DOM population + `input` events when execCommand is unavailable.
  */
-export async function fillPrompt(root: ParentNode, text: string, options: PromptOptions = {}): Promise<void> {
+export async function fillPrompt(
+  root: ParentNode,
+  selectors: ProviderSelectors,
+  text: string,
+  options: PromptOptions = {},
+): Promise<void> {
   let editor: Element;
   try {
-    editor = await waitForElement(root, SELECTORS.promptEditor, 'prompt editor', options);
+    editor = await waitForElement(root, selectors.promptEditor, 'prompt editor', options);
   } catch (e) {
     throw toPromptError('PROMPT_NOT_FOUND', e, 'fill-prompt');
   }
@@ -69,8 +74,12 @@ export async function fillPrompt(root: ParentNode, text: string, options: Prompt
  * fallback otherwise. Resolves once generation shows signs of starting
  * (stop indicator or response container); throws `SUBMIT_FAILED` otherwise.
  */
-export async function submitPrompt(root: ParentNode, options: PromptOptions = {}): Promise<void> {
-  const sendButton = queryFirst(root, SELECTORS.sendButton);
+export async function submitPrompt(
+  root: ParentNode,
+  selectors: ProviderSelectors,
+  options: PromptOptions = {},
+): Promise<void> {
+  const sendButton = queryFirst(root, selectors.sendButton);
 
   if (sendButton instanceof HTMLElement) {
     sendButton.click();
@@ -78,7 +87,7 @@ export async function submitPrompt(root: ParentNode, options: PromptOptions = {}
     // Enter fallback on the editor.
     let editor: Element | null;
     try {
-      editor = await waitForElement(root, SELECTORS.promptEditor, 'prompt editor', options);
+      editor = await waitForElement(root, selectors.promptEditor, 'prompt editor', options);
     } catch (e) {
       throw toPromptError('SUBMIT_FAILED', e, 'submit');
     }
@@ -94,8 +103,8 @@ export async function submitPrompt(root: ParentNode, options: PromptOptions = {}
   try {
     await waitForCondition(
       () =>
-        queryFirst(root, SELECTORS.stopButton) !== null ||
-        queryFirst(root, SELECTORS.responseContainer) !== null ||
+        queryFirst(root, selectors.stopButton) !== null ||
+        queryFirst(root, selectors.responseContainer) !== null ||
         null,
       'generation kickoff',
       { timeoutMs: options.kickoffTimeoutMs ?? 8_000, intervalMs: options.intervalMs ?? 100 },

@@ -8,7 +8,7 @@
 import { browser } from 'wxt/browser';
 import type { HistoryEntry } from '../types/automation';
 
-const HISTORY_KEY = 'gemini-automation/history' as const;
+const HISTORY_KEY = 'llm-automation/history' as const;
 const MAX_HISTORY_ENTRIES = 200;
 
 /** Append an entry to history storage. Prunes oldest when cap exceeded. */
@@ -52,6 +52,7 @@ function isHistoryEntryShape(value: unknown): value is HistoryEntry {
   return (
     typeof v.id === 'string' &&
     typeof v.timestamp === 'number' &&
+    typeof v.providerId === 'string' &&
     typeof v.prompt === 'string' &&
     (v.status === 'ok' || v.status === 'error') &&
     typeof v.responseText === 'string' &&

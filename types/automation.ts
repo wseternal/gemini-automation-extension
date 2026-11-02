@@ -10,10 +10,12 @@
 // Message discriminators
 // ---------------------------------------------------------------------------
 
-export const AUTOMATION_RUN_REQUEST = 'gemini-automation/run' as const;
-export const AUTOMATION_RUN_RESPONSE = 'gemini-automation/result' as const;
-export const TAB_LIST_REQUEST = 'gemini-automation/list-tabs' as const;
-export const TAB_LIST_RESPONSE = 'gemini-automation/tabs' as const;
+import type { LlmProviderId } from './provider';
+
+export const AUTOMATION_RUN_REQUEST = 'llm-automation/run' as const;
+export const AUTOMATION_RUN_RESPONSE = 'llm-automation/result' as const;
+export const TAB_LIST_REQUEST = 'llm-automation/list-tabs' as const;
+export const TAB_LIST_RESPONSE = 'llm-automation/tabs' as const;
 
 // ---------------------------------------------------------------------------
 // File payload guardrails (security gate 8)
@@ -22,7 +24,7 @@ export const TAB_LIST_RESPONSE = 'gemini-automation/tabs' as const;
 /** Hard cap on decoded file size accepted by the extension. */
 export const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MiB
 
-/** MIME types Gemini's uploader accepts that we are willing to forward. */
+/** MIME types accepted for file attachment across providers. */
 export const ALLOWED_MIME_TYPES = [
   'application/pdf',
   'application/json',
@@ -54,15 +56,15 @@ export interface FilePayload {
 
 export interface AutomationRunRequest {
   readonly kind: typeof AUTOMATION_RUN_REQUEST;
-  /** Query string placed into the Gemini prompt editor. */
+  /** Query string placed into the LLM prompt editor. */
   readonly prompt: string;
   /** Optional file to attach before submitting. */
   readonly file?: FilePayload;
-  /** Whether to force Temporary Chat mode first. Defaults to `false`. */
-  readonly temporaryChat?: boolean;
+  /** LLM provider to target. Defaults to 'gemini'. */
+  readonly providerId?: LlmProviderId;
   /** Overall streaming timeout in ms. Defaults to {@link DEFAULT_STREAM_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
-  /** Specific Gemini tab to reuse (skip tab search/temp-chat). */
+  /** Specific tab to reuse (skip tab search). */
   readonly targetTabId?: number;
 }
 
@@ -70,7 +72,7 @@ export interface AutomationRunRequest {
 // Tab list (popup → background)
 // ---------------------------------------------------------------------------
 
-/** Lightweight descriptor of an open Gemini tab. */
+/** Lightweight descriptor of an open LLM provider tab. */
 export interface TabInfo {
   readonly tabId: number;
   readonly title: string;
@@ -90,12 +92,12 @@ export interface TabListResponse {
 // Responses
 // ---------------------------------------------------------------------------
 
-export type AutomationStep = 'temporary-chat' | 'attach-file' | 'fill-prompt' | 'submit' | 'extract';
+export type AutomationStep = 'deep-think' | 'attach-file' | 'fill-prompt' | 'submit' | 'extract';
 
 export type AutomationErrorCode =
-  | 'NO_GEMINI_TAB'
+  | 'NO_TAB'
   | 'TAB_LOAD_TIMEOUT'
-  | 'TEMP_CHAT_FAILED'
+  | 'DEEP_THINK_FAILED'
   | 'ATTACH_FAILED'
   | 'ATTACH_NOT_REGISTERED'
   | 'PROMPT_NOT_FOUND'
@@ -103,6 +105,7 @@ export type AutomationErrorCode =
   | 'STREAM_TIMEOUT'
   | 'EXTRACTION_FAILED'
   | 'INVALID_PAYLOAD'
+  | 'INVALID_PROVIDER'
   | 'INTERNAL';
 
 export interface AutomationError {
@@ -113,6 +116,7 @@ export interface AutomationError {
 
 export interface AutomationRunMeta {
   readonly tabId: number;
+  readonly providerId: LlmProviderId;
   readonly durationMs: number;
   /** True when the stop-generation indicator was observed during streaming. */
   readonly streamingDetected: boolean;
@@ -197,7 +201,7 @@ export function isAutomationRunRequest(msg: unknown): msg is AutomationRunReques
   if (msg.kind !== AUTOMATION_RUN_REQUEST) return false;
   if (typeof msg.prompt !== 'string' || msg.prompt.trim().length === 0) return false;
   if (msg.file !== undefined && !isFilePayload(msg.file)) return false;
-  if (msg.temporaryChat !== undefined && typeof msg.temporaryChat !== 'boolean') return false;
+  if (msg.providerId !== undefined && typeof msg.providerId !== 'string') return false;
   if (msg.timeoutMs !== undefined && (typeof msg.timeoutMs !== 'number' || msg.timeoutMs <= 0)) return false;
   if (msg.targetTabId !== undefined && (typeof msg.targetTabId !== 'number' || msg.targetTabId <= 0)) return false;
   return true;
@@ -208,9 +212,9 @@ export function isTabListRequest(msg: unknown): msg is TabListRequest {
 }
 
 const ERROR_CODES: readonly AutomationErrorCode[] = [
-  'NO_GEMINI_TAB',
+  'NO_TAB',
   'TAB_LOAD_TIMEOUT',
-  'TEMP_CHAT_FAILED',
+  'DEEP_THINK_FAILED',
   'ATTACH_FAILED',
   'ATTACH_NOT_REGISTERED',
   'PROMPT_NOT_FOUND',
@@ -218,6 +222,7 @@ const ERROR_CODES: readonly AutomationErrorCode[] = [
   'STREAM_TIMEOUT',
   'EXTRACTION_FAILED',
   'INVALID_PAYLOAD',
+  'INVALID_PROVIDER',
   'INTERNAL',
 ];
 
@@ -269,6 +274,7 @@ export interface HistoryAttachmentMeta {
 export interface HistoryEntry {
   readonly id: string;
   readonly timestamp: number;
+  readonly providerId: LlmProviderId;
   readonly prompt: string;
   readonly status: 'ok' | 'error';
   /** Response text (empty string when status is 'error'). */
@@ -278,6 +284,6 @@ export interface HistoryEntry {
   readonly errorCode?: string;
   readonly errorMessage?: string;
   readonly attachment?: HistoryAttachmentMeta;
-  /** Gemini conversation URL captured after the run (e.g. https://gemini.google.com/app/…). */
+  /** Conversation URL captured after the run. */
   readonly conversationUrl?: string;
 }

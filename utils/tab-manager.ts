@@ -1,14 +1,14 @@
 /**
- * utils/tab-manager.ts — background-side orchestration of the Gemini tab.
+ * utils/tab-manager.ts — background-side orchestration of LLM provider tabs.
  *
- * Finds an already-open `https://gemini.google.com/app` tab (the user's
- * existing authenticated session) or creates one only as a fallback.
- * URL matching is done code-side (not via `tabs.query({url})`) so behavior
- * is deterministic and unit-testable. The `Browser` object is injected so
- * tests can run against a fake browser.
+ * Finds an already-open provider tab (the user's existing authenticated
+ * session) or creates one only as a fallback. URL matching is done
+ * provider-side via `provider.isProviderUrl()` so behavior is deterministic
+ * and unit-testable.
  */
 import type { Tabs } from 'wxt/browser';
 import { AutomationErrorException } from '../types/automation';
+import type { LlmProvider } from '../types/provider';
 import { sleep } from './dom-wait';
 
 /**
@@ -36,8 +36,6 @@ export interface BrowserLike {
   readonly storage: { readonly session: StorageSessionLike };
 }
 
-export const GEMINI_APP_URL = 'https://gemini.google.com/app';
-
 export interface ManagedTab {
   readonly tabId: number;
   readonly url: string;
@@ -51,33 +49,18 @@ export interface EnsureTabOptions {
   readonly loadTimeoutMs?: number;
 }
 
-/** True for Gemini app URLs: https://gemini.google.com/app[/...][?...][#...] */
-export function isGeminiAppUrl(url: string | undefined): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === 'https:' &&
-      parsed.hostname === 'gemini.google.com' &&
-      (parsed.pathname === '/app' || parsed.pathname.startsWith('/app/'))
-    );
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Selection policy, pure and unit-testable: prefer an active Gemini tab,
+ * Selection policy, pure and unit-testable: prefer an active provider tab,
  * otherwise the first one found; null when none exists.
  */
-export function pickPreferredGeminiTab(tabs: readonly Tabs.Tab[]): Tabs.Tab | null {
-  const geminiTabs = tabs.filter((tab) => isGeminiAppUrl(tab.url));
-  return geminiTabs.find((tab) => tab.active) ?? geminiTabs[0] ?? null;
+export function pickPreferredTab(tabs: readonly Tabs.Tab[], provider: LlmProvider): Tabs.Tab | null {
+  const matchingTabs = tabs.filter((tab) => provider.isProviderUrl(tab.url));
+  return matchingTabs.find((tab) => tab.active) ?? matchingTabs[0] ?? null;
 }
 
-/** Locate an existing Gemini app tab, preferring an active one. */
-export async function findGeminiTab(browser: BrowserLike): Promise<Tabs.Tab | null> {
-  return pickPreferredGeminiTab(await browser.tabs.query({}));
+/** Locate an existing provider tab, preferring an active one. */
+export async function findTab(browser: BrowserLike, provider: LlmProvider): Promise<Tabs.Tab | null> {
+  return pickPreferredTab(await browser.tabs.query({}), provider);
 }
 
 /** Resolve once the tab reports `status === 'complete'`; typed timeout otherwise. */
@@ -87,7 +70,7 @@ export async function waitForTabComplete(browser: BrowserLike, tabId: number, ti
     const tab = await browser.tabs.get(tabId);
     if (tab.status === 'complete') return;
     if (Date.now() >= deadline) {
-      throw new AutomationErrorException('TAB_LOAD_TIMEOUT', `Gemini tab ${tabId} did not finish loading within ${timeoutMs}ms`);
+      throw new AutomationErrorException('TAB_LOAD_TIMEOUT', `Tab ${tabId} did not finish loading within ${timeoutMs}ms`);
     }
     await sleep(250);
   }
@@ -98,29 +81,35 @@ export async function waitForTabComplete(browser: BrowserLike, tabId: number, ti
  * a tab is the fallback, so the user's authenticated session is never
  * re-challenged.
  */
-export async function ensureGeminiTab(browser: BrowserLike, options: EnsureTabOptions = {}): Promise<ManagedTab> {
-  const existing = await findGeminiTab(browser);
+export async function ensureTab(
+  browser: BrowserLike,
+  provider: LlmProvider,
+  options: EnsureTabOptions = {},
+): Promise<ManagedTab> {
+  const existing = await findTab(browser, provider);
   if (existing && typeof existing.id === 'number') {
-    return { tabId: existing.id, url: existing.url ?? GEMINI_APP_URL, created: false, shouldCloseAfter: false };
+    return { tabId: existing.id, url: existing.url ?? provider.urlPatterns[0], created: false, shouldCloseAfter: false };
   }
 
-  const created = await browser.tabs.create({ url: GEMINI_APP_URL, active: false });
+  const targetUrl = provider.urlPatterns[0].replace('/*', '');
+  const created = await browser.tabs.create({ url: targetUrl, active: false });
   if (typeof created.id !== 'number') {
-    throw new AutomationErrorException('NO_GEMINI_TAB', 'Could not create a Gemini tab');
+    throw new AutomationErrorException('NO_TAB', `Could not create a ${provider.name} tab`);
   }
   await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
-  return { tabId: created.id, url: GEMINI_APP_URL, created: true, shouldCloseAfter: true };
+  return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: true };
 }
 
 /**
  * Resolve the tab for an automation run. When `targetTabId` is given the
  * request targets a specific user-chosen conversation — the tab is verified
  * but never created/closed. Otherwise falls back to
- * {@link ensureGeminiTab} (new tabs open in the background and are flagged
+ * {@link ensureTab} (new tabs open in the background and are flagged
  * for cleanup after the run).
  */
 export async function resolveTargetTab(
   browser: BrowserLike,
+  provider: LlmProvider,
   targetTabId: number | undefined,
   options: EnsureTabOptions = {},
 ): Promise<ManagedTab> {
@@ -129,25 +118,35 @@ export async function resolveTargetTab(
     try {
       tab = await browser.tabs.get(targetTabId);
     } catch {
-      throw new AutomationErrorException('NO_GEMINI_TAB', `Target tab ${targetTabId} not found`);
+      throw new AutomationErrorException('NO_TAB', `Target tab ${targetTabId} not found`);
     }
-    if (!isGeminiAppUrl(tab.url)) {
-      throw new AutomationErrorException('NO_GEMINI_TAB', `Tab ${targetTabId} is not a Gemini conversation`);
+    if (!provider.isProviderUrl(tab.url)) {
+      throw new AutomationErrorException('NO_TAB', `Tab ${targetTabId} is not a ${provider.name} conversation`);
     }
-    return { tabId: targetTabId, url: tab.url ?? GEMINI_APP_URL, created: false, shouldCloseAfter: false };
+    return { tabId: targetTabId, url: tab.url ?? provider.urlPatterns[0], created: false, shouldCloseAfter: false };
   }
 
   // No target — open a fresh background tab.
-  const created = await browser.tabs.create({ url: GEMINI_APP_URL, active: false });
+  const targetUrl = provider.urlPatterns[0].replace('/*', '');
+  const created = await browser.tabs.create({ url: targetUrl, active: false });
   if (typeof created.id !== 'number') {
-    throw new AutomationErrorException('NO_GEMINI_TAB', 'Could not create a Gemini tab');
+    throw new AutomationErrorException('NO_TAB', `Could not create a ${provider.name} tab`);
   }
   await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
-  return { tabId: created.id, url: GEMINI_APP_URL, created: true, shouldCloseAfter: true };
+  return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: true };
 }
 
-/** List all open Gemini app tabs with lightweight metadata. */
-export async function listGeminiTabs(browser: BrowserLike): Promise<Tabs.Tab[]> {
+/** List all open tabs matching a provider with lightweight metadata. */
+export async function listTabs(browser: BrowserLike, provider: LlmProvider): Promise<Tabs.Tab[]> {
   const allTabs = await browser.tabs.query({});
-  return allTabs.filter((tab) => isGeminiAppUrl(tab.url));
+  return allTabs.filter((tab) => provider.isProviderUrl(tab.url));
+}
+
+/** List all open tabs matching any registered provider. */
+export async function listAllProviderTabs(
+  browser: BrowserLike,
+  providers: readonly LlmProvider[],
+): Promise<Tabs.Tab[]> {
+  const allTabs = await browser.tabs.query({});
+  return allTabs.filter((tab) => providers.some((p) => p.isProviderUrl(tab.url)));
 }

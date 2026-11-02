@@ -1,7 +1,7 @@
 /**
  * entrypoints/background.ts — tab orchestration and message dispatch.
  *
- * Receives typed run requests (popup or programmatic), resolves the Gemini
+ * Receives typed run requests (popup or programmatic), resolves the provider
  * tab via the tab manager (reuse-first), dispatches to the content script,
  * stamps tab metadata, and hands the latest result off via storage.session
  * so a reopened popup can recover it.
@@ -21,10 +21,12 @@ import {
   type HistoryEntry,
   type TabListResponse,
 } from '../types/automation';
-import { resolveTargetTab, listGeminiTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
+import { getProvider, getDefaultProvider, ALL_PROVIDERS } from '../providers';
+import type { LlmProviderId } from '../types/provider';
+import { resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
 import { generateHistoryId, saveHistoryEntry } from '../utils/history-storage';
 
-export const LAST_RESULT_KEY = 'gemini-automation/last-result' as const;
+export const LAST_RESULT_KEY = 'llm-automation/last-result' as const;
 
 export interface DispatchOptions {
   readonly loadTimeoutMs?: number;
@@ -47,11 +49,18 @@ export async function dispatchAutomation(
   request: AutomationRunRequest,
   options: DispatchOptions = {},
 ): Promise<AutomationRunResponse> {
+  // Resolve provider from request or use default.
+  const providerId = request.providerId ?? 'gemini';
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return err('INVALID_PROVIDER', `Unknown provider: ${providerId}`);
+  }
+
   let managed: Awaited<ReturnType<typeof resolveTargetTab>> | undefined;
   let tabId: number | undefined;
   let succeeded = false;
   try {
-    managed = await resolveTargetTab(browserApi, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs });
+    managed = await resolveTargetTab(browserApi, provider, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs });
     tabId = managed.tabId;
 
     let raw: unknown;
@@ -75,7 +84,7 @@ export async function dispatchAutomation(
     const stamped = withTabId(raw, tabId);
     await browserApi.storage.session.set({ [LAST_RESULT_KEY]: stamped });
     const conversationUrl = await getTabUrl(browserApi, tabId);
-    await persistHistory(request, stamped, conversationUrl);
+    await persistHistory(request, provider.id, stamped, conversationUrl);
     succeeded = stamped.status === 'ok';
     return stamped;
   } catch (e) {
@@ -83,14 +92,14 @@ export async function dispatchAutomation(
       const response = err(e.code, e.message, e.step);
       const stamped = tabId === undefined ? response : withTabId(response, tabId);
       const conversationUrl = tabId !== undefined ? await getTabUrl(browserApi, tabId) : undefined;
-      await persistHistory(request, stamped, conversationUrl);
+      await persistHistory(request, provider.id, stamped, conversationUrl);
       return stamped;
     }
     const message = e instanceof Error ? e.message : String(e);
     const response = err('INTERNAL', `automation dispatch failed: ${message}`);
     const stamped = tabId === undefined ? response : withTabId(response, tabId);
     const conversationUrl = tabId !== undefined ? await getTabUrl(browserApi, tabId) : undefined;
-    await persistHistory(request, stamped, conversationUrl);
+    await persistHistory(request, provider.id, stamped, conversationUrl);
     return stamped;
   } finally {
     // Only close the background tab on success; keep it open on error
@@ -111,9 +120,9 @@ export default defineBackground(() => {
   );
 });
 
-/** Return lightweight descriptors of all open Gemini tabs. */
+/** Return lightweight descriptors of all open LLM provider tabs. */
 async function handleTabList(browserApi: BrowserLike): Promise<TabListResponse> {
-  const tabs = await listGeminiTabs(browserApi);
+  const tabs = await listAllProviderTabs(browserApi, ALL_PROVIDERS);
   return {
     kind: TAB_LIST_RESPONSE,
     tabs: tabs
@@ -125,12 +134,14 @@ async function handleTabList(browserApi: BrowserLike): Promise<TabListResponse> 
 /** Build a HistoryEntry from the request + response and persist it. */
 async function persistHistory(
   request: AutomationRunRequest,
+  providerId: LlmProviderId,
   response: AutomationRunResponse,
   conversationUrl?: string,
 ): Promise<void> {
   const entry: HistoryEntry = {
     id: generateHistoryId(),
     timestamp: Date.now(),
+    providerId,
     prompt: request.prompt,
     status: response.status,
     responseText: response.status === 'ok' ? response.text : '',

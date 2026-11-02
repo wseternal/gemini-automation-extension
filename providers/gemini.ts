@@ -1,30 +1,9 @@
 /**
- * utils/selectors.ts — the Gemini DOM selector registry.
- *
- * Gemini ships obfuscated, frequently-changing class names. Every DOM
- * dependency of the automation pipeline is declared here ONCE, as an ordered
- * list of fallback selectors (most semantically stable first: ARIA labels and
- * roles, then structural hooks, then class heuristics). When Gemini drifts,
- * this file is the only place that should need updating.
+ * providers/gemini.ts — Gemini (gemini.google.com) provider implementation.
  */
-export const SELECTORS = {
-  /** "Temporary chat" toggle in the top-right control bar. */
-  tempChatButton: [
-    'button[aria-label*="Temporary chat"]',
-    'button[mattooltip*="Temporary chat"]',
-    'button[data-test-id*="temp-chat"]',
-    '[role="button"][aria-label*="Temporary chat"]',
-  ],
+import type { LlmProvider, ProviderSelectors } from '../types/provider';
 
-  /** Markers that only exist while a Temporary Chat is active. */
-  tempChatActiveMarker: [
-    '[data-test-id*="temp-chat-active"]',
-    '[class*="temp-chat-banner"]',
-    '[class*="temporary-chat"]',
-    'button[aria-label*="Temporary chat"][aria-pressed="true"]',
-  ],
-
-  /** Rich-text / contenteditable prompt container. */
+const SELECTORS: ProviderSelectors = {
   promptEditor: [
     'div.ql-editor[contenteditable="true"]',
     'rich-textarea div[contenteditable="true"]',
@@ -34,8 +13,6 @@ export const SELECTORS = {
     '.text-input-field textarea',
     '[data-node-type="input-area"] textarea',
   ],
-
-  /** Send control. */
   sendButton: [
     'button.send-button',
     'button[aria-label*="Send message"]',
@@ -43,19 +20,17 @@ export const SELECTORS = {
     'button[aria-label*="Send"]',
     '.send-icon',
   ],
-
-  /** Stop-generation indicator — present only while the model streams. */
   stopButton: [
     'button[aria-label*="Stop response"]',
     'button[aria-label*="Stop generating"]',
     'button[data-mat-icon-name="stop"]',
     'button[aria-label*="Stop"]',
   ],
-
-  /** Hidden file input behind the uploader. */
-  fileInput: ['input[type="file"][hidden]', 'input[type="file"][aria-hidden]', 'input[type="file"]'],
-
-  /** Attachment chip / preview shown once Gemini has registered an upload. */
+  fileInput: [
+    'input[type="file"][hidden]',
+    'input[type="file"][aria-hidden]',
+    'input[type="file"]',
+  ],
   attachmentChip: [
     'uploader-file-preview',
     '.file-preview-chip',
@@ -72,8 +47,6 @@ export const SELECTORS = {
     '[aria-label*="attachment"]',
     '[aria-label*="Remove file"]',
   ],
-
-  /** Rendered model response containers (latest one wins). */
   responseContainer: [
     'message-content',
     '[data-test-id="model-response"]',
@@ -86,8 +59,6 @@ export const SELECTORS = {
     'chat-message[author="model"]',
     'turn-content[data-author="model"]',
   ],
-
-  /** Drop target for synthesized drag-and-drop file ingestion. */
   dropZone: [
     '[xapfileselectordropzone]',
     '[file-drop-zone]',
@@ -100,6 +71,27 @@ export const SELECTORS = {
     '[class*="prompt-area"]',
     'main',
   ],
-} as const;
+};
 
-export type SelectorKey = keyof typeof SELECTORS;
+export const geminiProvider: LlmProvider = {
+  id: 'gemini',
+  name: 'Google Gemini',
+  urlPatterns: ['https://gemini.google.com/*'],
+  selectors: SELECTORS,
+  hasDeepThink: false,
+  fileAttachmentStrategy: 'paste-bridge',
+
+  isProviderUrl(url: string | undefined): boolean {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.protocol === 'https:' &&
+        parsed.hostname === 'gemini.google.com' &&
+        (parsed.pathname === '/app' || parsed.pathname.startsWith('/app/'))
+      );
+    } catch {
+      return false;
+    }
+  },
+};

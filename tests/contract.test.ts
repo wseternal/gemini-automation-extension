@@ -41,7 +41,7 @@ describe('messaging contract', () => {
   });
 
   it('builds and recognizes an ok response', () => {
-    const res = ok('full text', { tabId: 7, durationMs: 12, streamingDetected: true, steps: ['extract'] });
+    const res = ok('full text', { tabId: 7, providerId: 'gemini', durationMs: 12, streamingDetected: true, steps: ['extract'] });
     expect(res.kind).toBe(AUTOMATION_RUN_RESPONSE);
     expect(res.status).toBe('ok');
     expect(isAutomationRunResponse(res)).toBe(true);
