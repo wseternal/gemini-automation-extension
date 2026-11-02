@@ -40,4 +40,5 @@ export function getDefaultProvider(): LlmProvider {
   return REGISTRY.get(DEFAULT_PROVIDER_ID)!;
 }
 
-export { geminiProvider, deepseekProvider };
+// Provider implementations are internal — use the registry functions above.
+// Direct imports of geminiProvider / deepseekProvider bypass the registry.

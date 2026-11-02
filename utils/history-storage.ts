@@ -46,18 +46,32 @@ async function readRaw(): Promise<HistoryEntry[]> {
   return raw.filter(isHistoryEntryShape);
 }
 
+const KNOWN_PROVIDER_IDS = new Set(['gemini', 'deepseek']);
+
+function isAttachmentShape(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.name === 'string' &&
+    typeof v.mimeType === 'string' &&
+    typeof v.byteLength === 'number' &&
+    v.byteLength > 0
+  );
+}
+
 function isHistoryEntryShape(value: unknown): value is HistoryEntry {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.id === 'string' &&
-    typeof v.timestamp === 'number' &&
-    typeof v.providerId === 'string' &&
+    typeof v.id === 'string' && v.id.length > 0 &&
+    typeof v.timestamp === 'number' && v.timestamp > 1_600_000_000_000 &&
+    typeof v.providerId === 'string' && KNOWN_PROVIDER_IDS.has(v.providerId) &&
     typeof v.prompt === 'string' &&
     (v.status === 'ok' || v.status === 'error') &&
     typeof v.responseText === 'string' &&
     (v.conversationUrl === undefined || typeof v.conversationUrl === 'string') &&
-    (v.responseMarkdown === undefined || typeof v.responseMarkdown === 'string')
+    (v.responseMarkdown === undefined || typeof v.responseMarkdown === 'string') &&
+    (v.attachment === undefined || isAttachmentShape(v.attachment))
   );
 }
 

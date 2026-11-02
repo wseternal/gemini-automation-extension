@@ -246,8 +246,19 @@ function handleTable(el: Element, out: string[]): void {
 
   out.push('\n\n');
 
+  // Detect whether the first row contains <th> elements (explicit header).
+  const firstRowCells = rows[0].querySelectorAll('th, td');
+  const hasHeader = firstRowCells.length > 0 && firstRowCells[0].tagName.toLowerCase() === 'th';
+
+  if (!hasHeader) {
+    // No explicit header — generate an empty placeholder row + separator.
+    const colCount = firstRowCells.length;
+    out.push('| ' + Array(colCount).fill(' ').join(' | ') + ' |\n');
+    out.push('| ' + Array(colCount).fill('---').join(' | ') + ' |\n');
+  }
+
   let headerDone = false;
-  for (const row of Array.from(rows)) {
+  for (const row of rows) {
     const cells = row.querySelectorAll('th, td');
     const cellTexts = Array.from(cells).map((c) => {
       const text = c.textContent?.trim() ?? '';
@@ -257,8 +268,8 @@ function handleTable(el: Element, out: string[]): void {
 
     out.push('| ' + cellTexts.join(' | ') + ' |\n');
 
-    // Add separator after the first row (header).
-    if (!headerDone) {
+    // Add separator after the first row only when it contains <th>.
+    if (hasHeader && !headerDone) {
       out.push('| ' + cellTexts.map(() => '---').join(' | ') + ' |\n');
       headerDone = true;
     }
@@ -281,8 +292,9 @@ function isHidden(el: Element): boolean {
  * Escape characters that have special meaning in Markdown.
  * Also escapes HTML angle brackets to prevent raw HTML from leaking
  * into the output (marked v18+ does not sanitize HTML by default).
+ * Exported for contract testing.
  */
-function escapeMarkdown(text: string): string {
+export function escapeMarkdown(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -291,8 +303,8 @@ function escapeMarkdown(text: string): string {
     .replace(/`/g, '\\`');
 }
 
-/** Clean up excessive blank lines and trim. */
-function cleanOutput(text: string): string {
+/** Clean up excessive blank lines and trim. Exported for contract testing. */
+export function cleanOutput(text: string): string {
   return text
     .replace(/\n{3,}/g, '\n\n') // collapse 3+ newlines to 2
     .trim();

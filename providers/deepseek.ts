@@ -20,7 +20,9 @@ const SELECTORS: ProviderSelectors = {
    * The streaming detection uses SVG path analysis in response-extractor.
    */
   stopButton: [
-    // Placeholder — actual detection is SVG-based in the extractor
+    // DeepSeek uses SVG path analysis for streaming detection
+    // (see response-extractor.ts#isStreaming). This selector
+    // targets the button element so the extractor can read its SVG child.
     '.ds-button--primary.ds-button--filled.ds-button--circle',
   ],
   fileInput: [

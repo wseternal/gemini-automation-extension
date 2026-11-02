@@ -9,11 +9,12 @@ import type {
   TabInfo,
   TabListResponse,
 } from '../../types/automation';
-import { TAB_LIST_REQUEST } from '../../types/automation';
+import { isAutomationRunResponse, TAB_LIST_REQUEST } from '../../types/automation';
 import type { LlmProviderId } from '../../types/provider';
 import { PopupController, type PopupTransport } from './controller';
 
 const PROVIDER_STORAGE_KEY = 'llm-automation/selected-provider';
+const LAST_RESULT_KEY = 'llm-automation/last-result' as const;
 
 const transport: PopupTransport = {
   run: (request: AutomationRunRequest) =>
@@ -36,9 +37,22 @@ const transport: PopupTransport = {
   setSelectedProvider: async (id: LlmProviderId): Promise<void> => {
     await browser.storage.local.set({ [PROVIDER_STORAGE_KEY]: id });
   },
+  getLastResult: async (): Promise<AutomationRunResponse | undefined> => {
+    const result = await browser.storage.session.get(LAST_RESULT_KEY);
+    const stored = result[LAST_RESULT_KEY];
+    if (isAutomationRunResponse(stored)) {
+      // Clear after recovery to prevent stale display on next reopen.
+      await browser.storage.session.remove(LAST_RESULT_KEY);
+      return stored;
+    }
+    return undefined;
+  },
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   const root = document.getElementById('app');
-  if (root) new PopupController(root, transport);
+  if (!root) return;
+  const controller = new PopupController(root, transport);
+  // Recover in-flight result if popup was closed during a run.
+  void controller.recoverLastResult();
 });

@@ -12,6 +12,9 @@ import { isAutomationRunRequest, type AutomationRunResponse } from '../types/aut
 import { getProviderByUrl } from '../providers';
 import { runAutomation } from '../utils/automation-runner';
 
+// Maintenance: when adding a new provider, update this `matches` array
+// AND the provider's `isProviderUrl()` AND the upload-main.content.ts
+// `matches` array to keep content-script injection aligned.
 export default defineContentScript({
   matches: ['https://gemini.google.com/*', 'https://chat.deepseek.com/*'],
   main() {

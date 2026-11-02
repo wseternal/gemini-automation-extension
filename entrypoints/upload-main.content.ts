@@ -50,8 +50,15 @@ function isUploadRequest(data: unknown): data is UploadRequest {
  *
  * Strategy A: Direct file input (works for DeepSeek and many others).
  * Strategy B: Paste event on contenteditable editor (Gemini).
- * Strategy C: Drop events on editor and drop zones (backup).
+ * Strategy C: Drop events on editor (backup).
+ * Strategy D: Drop on drop zone directive element (final backup).
  * Runs entirely in the page's main world where DataTransfer is native.
+ *
+ * Maintenance: the CSS selectors below are duplicated from providers/*.ts
+ * because the main-world script cannot import provider config (no access
+ * to the extension's module namespace). When adding a new provider, add
+ * its selectors here AND in the corresponding provider file AND in
+ * content.ts `matches` to keep injection aligned.
  */
 function performUpload(dataBase64: string, name: string, mimeType: string): { ok: boolean; error?: string } {
   try {

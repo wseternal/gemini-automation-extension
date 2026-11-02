@@ -13,6 +13,7 @@ import {
   validateFilePayload,
   type AutomationRunRequest,
 } from '../types/automation';
+import { escapeMarkdown, cleanOutput } from '../utils/dom-to-markdown';
 
 describe('messaging contract', () => {
   const validRequest: AutomationRunRequest = {
@@ -96,5 +97,53 @@ describe('messaging contract', () => {
     expect(e.code).toBe('ATTACH_FAILED');
     expect(e.step).toBe('attach-file');
     expect(e.toAutomationError()).toEqual({ code: 'ATTACH_FAILED', message: 'boom', step: 'attach-file' });
+  });
+});
+
+describe('escapeMarkdown', () => {
+  it('escapes ampersands', () => {
+    expect(escapeMarkdown('a & b')).toBe('a &amp; b');
+  });
+
+  it('escapes angle brackets', () => {
+    expect(escapeMarkdown('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('escapes backslashes', () => {
+    expect(escapeMarkdown('path\\to\\file')).toBe('path\\\\to\\\\file');
+  });
+
+  it('escapes backticks', () => {
+    expect(escapeMarkdown('code `block` here')).toBe('code \\`block\\` here');
+  });
+
+  it('handles empty string', () => {
+    expect(escapeMarkdown('')).toBe('');
+  });
+
+  it('leaves plain text unchanged', () => {
+    expect(escapeMarkdown('hello world')).toBe('hello world');
+  });
+});
+
+describe('cleanOutput', () => {
+  it('collapses 3+ newlines to 2', () => {
+    expect(cleanOutput('a\n\n\n\nb')).toBe('a\n\nb');
+  });
+
+  it('trims leading and trailing whitespace', () => {
+    expect(cleanOutput('  \n\nhello\n\n  ')).toBe('hello');
+  });
+
+  it('preserves double newlines', () => {
+    expect(cleanOutput('a\n\nb')).toBe('a\n\nb');
+  });
+
+  it('handles empty string', () => {
+    expect(cleanOutput('')).toBe('');
+  });
+
+  it('handles only whitespace', () => {
+    expect(cleanOutput('   \n\n   ')).toBe('');
   });
 });

@@ -25,6 +25,8 @@ export interface PopupTransport {
   listTabs(): Promise<TabInfo[]>;
   getSelectedProvider(): Promise<LlmProviderId>;
   setSelectedProvider(id: LlmProviderId): Promise<void>;
+  /** Retrieve the last persisted result (for popup reopen recovery). */
+  getLastResult?(): Promise<AutomationRunResponse | undefined>;
 }
 
 const TEMPLATE = `
@@ -294,6 +296,25 @@ export class PopupController {
       this.copyButton.textContent = 'Copied!';
     } catch {
       this.copyButton.textContent = 'Copy failed';
+    }
+  }
+
+  /** Recover the last result from session storage (popup reopen scenario). */
+  async recoverLastResult(): Promise<void> {
+    if (!this.transport.getLastResult) return;
+    if (this.phase !== 'idle') return; // already running or has a result
+    try {
+      const result = await this.transport.getLastResult();
+      if (!result) return;
+      if (result.status === 'ok') {
+        this.resultText.textContent = result.text;
+        this.setPhase('success');
+      } else {
+        this.lastError = `[${result.error.code}] ${result.error.message}`;
+        this.setPhase('error');
+      }
+    } catch {
+      // Recovery failure is non-critical — the user can re-run.
     }
   }
 

@@ -82,20 +82,31 @@ export async function extractResponse(
   let streamingDetected = false;
   let lastText = '';
   let stableCount = 0;
+  let cachedContainer: Element | null = null;
 
   for (;;) {
-    const text = latestResponseText(root, selectors);
+    // Cache the container element and re-query only when disconnected.
+    if (!cachedContainer || !cachedContainer.isConnected) {
+      cachedContainer = latestResponseContainer(root, selectors);
+    }
+
+    const text = cachedContainer?.textContent?.trim() ?? '';
     const streaming = isStreaming(root, selectors, svgStopDetection);
 
     if (text.length > 0) containerSeen = true;
     if (streaming) streamingDetected = true;
 
+    // S8: If the container was seen but text disappears, the container was
+    // removed mid-stream — return the last captured text rather than timing out.
+    if (containerSeen && !streaming && text.length === 0 && lastText.length > 0) {
+      const markdown = lastText; // No DOM element to convert — use plain text.
+      return { text: lastText, markdown, streamingDetected };
+    }
+
     if (containerSeen && !streaming && text.length > 0) {
       stableCount = text === lastText ? stableCount + 1 : 1;
       if (stableCount >= stabilityPolls) {
-        // Extract structured markdown from the DOM alongside plain text.
-        const container = latestResponseContainer(root, selectors);
-        const markdown = container ? convertDomToMarkdown(container) : text;
+        const markdown = cachedContainer ? convertDomToMarkdown(cachedContainer) : text;
         return { text, markdown, streamingDetected };
       }
     } else {

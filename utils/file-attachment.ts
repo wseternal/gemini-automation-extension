@@ -128,7 +128,11 @@ interface UploadResult {
  * by unrelated scripts on the page.
  * Returns the result from the main world, or times out.
  */
-function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promise<{ ok: boolean; error?: string }> {
+function requestMainWorldUpload(
+  payload: FilePayload,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; error?: string }> {
   const id = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const nonce = `nonce_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
@@ -136,6 +140,18 @@ function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promis
   document.documentElement.dataset.bridgeNonce = nonce;
 
   return new Promise((resolve) => {
+    const cleanup = () => {
+      window.removeEventListener('message', handler);
+      clearTimeout(timer);
+      delete document.documentElement.dataset.bridgeNonce;
+      signal?.removeEventListener('abort', onAbort);
+    };
+
+    const onAbort = () => {
+      cleanup();
+      resolve({ ok: false, error: 'upload aborted by caller' });
+    };
+
     const handler = (event: MessageEvent) => {
       // Only accept messages from the same window.
       if (event.source !== window) return;
@@ -145,19 +161,17 @@ function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promis
         data?.type === 'llm-bridge/upload-result' &&
         data.id === id
       ) {
-        window.removeEventListener('message', handler);
-        clearTimeout(timer);
-        delete document.documentElement.dataset.bridgeNonce;
+        cleanup();
         resolve({ ok: data.ok, error: data.error });
       }
     };
 
     const timer = setTimeout(() => {
-      window.removeEventListener('message', handler);
-      delete document.documentElement.dataset.bridgeNonce;
+      cleanup();
       resolve({ ok: false, error: 'main-world upload request timed out' });
     }, timeoutMs);
 
+    signal?.addEventListener('abort', onAbort, { once: true });
     window.addEventListener('message', handler);
 
     const request: UploadRequest = {
