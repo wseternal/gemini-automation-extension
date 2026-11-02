@@ -1,0 +1,376 @@
+/* Gemini Automation Bridge — full-page history view styles. */
+:root {
+  color-scheme: light dark;
+  font-family: 'Google Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: #1f1f1f;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1e1f20;
+    color: #e3e3e3;
+  }
+}
+
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+/* Header */
+.history-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .history-page-header {
+    border-bottom-color: #3c4043;
+  }
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+}
+
+.muted {
+  color: #80868b;
+  font-size: 13px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  font-size: 14px;
+}
+
+/* Buttons */
+button {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid #c4c7c5;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: #0b57d0;
+  font-size: 13px;
+  font-weight: 500;
+  min-height: auto;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.back-link {
+  margin-bottom: 16px;
+  display: inline-block;
+}
+
+/* History list */
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.history-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  .history-item {
+    border-bottom-color: #3c4043;
+  }
+  .history-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.history-status {
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+  width: 24px;
+  text-align: center;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.history-status.status-ok {
+  color: #188038;
+}
+
+.history-status.status-error {
+  color: #b3261e;
+}
+
+.history-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-preview {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.history-response-preview {
+  font-size: 12px;
+  color: #80868b;
+  line-height: 1.4;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+.history-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #80868b;
+  white-space: nowrap;
+  margin-top: 3px;
+}
+
+/* Detail view */
+.detail-card {
+  padding: 0;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge.status-ok {
+  background: #e6f4ea;
+  color: #188038;
+}
+
+.status-badge.status-error {
+  background: #fce8e6;
+  color: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .status-badge.status-ok {
+    background: rgba(24, 128, 56, 0.2);
+  }
+  .status-badge.status-error {
+    background: rgba(179, 38, 30, 0.2);
+  }
+}
+
+.detail-time {
+  font-size: 13px;
+  color: #80868b;
+}
+
+.conversation-link {
+  display: inline-block;
+  color: #0b57d0;
+  font-size: 13px;
+  margin-bottom: 12px;
+  text-decoration: none;
+}
+
+.conversation-link:hover {
+  text-decoration: underline;
+}
+
+.result-block {
+  margin: 0;
+  padding: 16px;
+  word-break: break-word;
+  border: 1px solid #c4c7c5;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: none;
+  overflow: visible;
+  background: #fafafa;
+}
+
+/* Markdown content inside result blocks */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 16px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown-body h1 { font-size: 1.4em; }
+.markdown-body h2 { font-size: 1.25em; }
+.markdown-body h3 { font-size: 1.1em; }
+
+.markdown-body p {
+  margin: 0 0 12px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 12px;
+  padding-left: 24px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.markdown-body pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 12px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 12px;
+  padding: 0 16px;
+  border-left: 3px solid #c4c7c5;
+  color: #80868b;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  width: 100%;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid #c4c7c5;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: rgba(0, 0, 0, 0.04);
+  font-weight: 600;
+}
+
+.markdown-body a {
+  color: #0b57d0;
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #c4c7c5;
+  margin: 16px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .markdown-body code {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  .markdown-body pre {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .markdown-body blockquote {
+    border-left-color: #3c4043;
+  }
+  .markdown-body th,
+  .markdown-body td {
+    border-color: #3c4043;
+  }
+  .markdown-body th {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .markdown-body hr {
+    border-top-color: #3c4043;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .result-block {
+    background: #28292a;
+    border-color: #3c4043;
+  }
+}
+
+.error-text {
+  color: #b3261e;
+}
