@@ -19,6 +19,7 @@ import { defineContentScript } from 'wxt/sandbox';
 interface UploadRequest {
   type: 'llm-bridge/upload';
   id: string;
+  nonce: string;
   dataBase64: string;
   name: string;
   mimeType: string;
@@ -37,6 +38,7 @@ function isUploadRequest(data: unknown): data is UploadRequest {
     data !== null &&
     (data as Record<string, unknown>).type === 'llm-bridge/upload' &&
     typeof (data as Record<string, unknown>).id === 'string' &&
+    typeof (data as Record<string, unknown>).nonce === 'string' &&
     typeof (data as Record<string, unknown>).dataBase64 === 'string' &&
     typeof (data as Record<string, unknown>).name === 'string' &&
     typeof (data as Record<string, unknown>).mimeType === 'string'
@@ -145,6 +147,13 @@ export default defineContentScript({
 
       const data = event.data;
       if (!isUploadRequest(data)) return;
+
+      // Validate nonce to prevent processing by unrelated scripts.
+      const expectedNonce = document.documentElement.dataset.bridgeNonce;
+      if (!expectedNonce || data.nonce !== expectedNonce) return;
+
+      // Rotate nonce after use.
+      delete document.documentElement.dataset.bridgeNonce;
 
       const result = performUpload(data.dataBase64, data.name, data.mimeType);
 

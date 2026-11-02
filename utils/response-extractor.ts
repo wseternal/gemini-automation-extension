@@ -59,7 +59,7 @@ export function isStreaming(root: ParentNode, selectors: ProviderSelectors, svgS
     if (!svgPath) return false;
     const d = svgPath.getAttribute('d') ?? '';
     // Square icon = stop (streaming active)
-    return d.startsWith('M2 4.88') || d.startsWith('M2 4.');
+    return d.startsWith('M2 4.88') || d.startsWith('M2 4.8');
   }
   return queryFirst(root, selectors.stopButton) !== null;
 }

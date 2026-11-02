@@ -1,6 +1,6 @@
 {
   "name": "gemini-automation-extension",
-  "description": "Manifest V3 (WXT) extension that automates a Gemini Temporary Chat round inside the user's existing authenticated browser session.",
+  "description": "Manifest V3 (WXT) extension that automates LLM conversations (Gemini, DeepSeek) inside the user's existing authenticated browser session.",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,11 +11,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.0.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.9",
     "wxt": "^0.19.29"
   },
   "dependencies": {
+    "dompurify": "^3.4.17",
     "marked": "^18.1.2"
   }
 }

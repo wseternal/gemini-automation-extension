@@ -128,7 +128,13 @@ function walkNode(node: Node, out: string[], listDepth: number): void {
       const href = el.getAttribute('href') ?? '';
       const text = el.textContent ?? '';
       if (href && text) {
-        out.push(`[${escapeMarkdown(text)}](${href})`);
+        // Only allow safe URI schemes to prevent javascript: injection.
+        const safeHref = /^(https?:|mailto:|#)/i.test(href) ? href : '';
+        if (safeHref) {
+          out.push(`[${escapeMarkdown(text)}](${safeHref})`);
+        } else {
+          out.push(escapeMarkdown(text));
+        }
       } else {
         walkChildren(el, out, listDepth);
       }

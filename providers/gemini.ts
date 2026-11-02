@@ -80,6 +80,7 @@ export const geminiProvider: LlmProvider = {
   selectors: SELECTORS,
   hasDeepThink: false,
   fileAttachmentStrategy: 'paste-bridge',
+  streamingDetection: 'dom',
 
   isProviderUrl(url: string | undefined): boolean {
     if (!url) return false;

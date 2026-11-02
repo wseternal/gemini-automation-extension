@@ -6,6 +6,7 @@
  * browsing past runs.
  */
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import type { HistoryEntry } from '../../types/automation';
 import {
   clearHistory,
@@ -191,14 +192,14 @@ export class HistoryController {
     }
 
     // Prompt (rendered as markdown)
-    this.detailPrompt.innerHTML = marked.parse(entry.prompt) as string;
+    this.detailPrompt.innerHTML = renderSafeMarkdown(entry.prompt);
 
     // Response or error (rendered as markdown)
     if (entry.status === 'ok') {
       this.detailResponseLabel.textContent = 'Response';
       // Prefer structured markdown when available; fall back to plain text.
       const md = entry.responseMarkdown || entry.responseText || '(empty response)';
-      this.detailResponse.innerHTML = marked.parse(md) as string;
+      this.detailResponse.innerHTML = renderSafeMarkdown(md);
       this.detailResponse.classList.remove('error-text');
     } else {
       this.detailResponseLabel.textContent = 'Error';
@@ -238,11 +239,22 @@ function formatRelativeTime(epochMs: number): string {
   return new Date(epochMs).toLocaleDateString();
 }
 
+/**
+ * Render Markdown to HTML with XSS protection.
+ * `marked` v18+ does not sanitize HTML by default, so raw `<script>`,
+ * `<iframe>`, and event handlers would execute. DOMPurify strips all
+ * dangerous elements and attributes after Markdown parsing.
+ */
+function renderSafeMarkdown(text: string): string {
+  return DOMPurify.sanitize(marked.parse(text) as string);
+}
+
 /** Minimal HTML escaping for user-generated text inserted via innerHTML. */
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

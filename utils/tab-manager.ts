@@ -126,14 +126,8 @@ export async function resolveTargetTab(
     return { tabId: targetTabId, url: tab.url ?? provider.urlPatterns[0], created: false, shouldCloseAfter: false };
   }
 
-  // No target — open a fresh background tab.
-  const targetUrl = provider.urlPatterns[0].replace('/*', '');
-  const created = await browser.tabs.create({ url: targetUrl, active: false });
-  if (typeof created.id !== 'number') {
-    throw new AutomationErrorException('NO_TAB', `Could not create a ${provider.name} tab`);
-  }
-  await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
-  return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: true };
+  // No target — reuse existing tab or create a new background tab.
+  return ensureTab(browser, provider, options);
 }
 
 /** List all open tabs matching a provider with lightweight metadata. */

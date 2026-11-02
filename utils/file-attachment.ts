@@ -109,6 +109,7 @@ function toAttachError(e: unknown): AutomationErrorException {
 interface UploadRequest {
   type: 'llm-bridge/upload';
   id: string;
+  nonce: string;
   dataBase64: string;
   name: string;
   mimeType: string;
@@ -123,10 +124,16 @@ interface UploadResult {
 
 /**
  * Request the main-world content script to perform the file upload.
+ * Uses a shared nonce set on the DOM to prevent accidental processing
+ * by unrelated scripts on the page.
  * Returns the result from the main world, or times out.
  */
 function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promise<{ ok: boolean; error?: string }> {
   const id = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const nonce = `nonce_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  // Set nonce on DOM so the main-world script can validate it.
+  document.documentElement.dataset.bridgeNonce = nonce;
 
   return new Promise((resolve) => {
     const handler = (event: MessageEvent) => {
@@ -140,12 +147,14 @@ function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promis
       ) {
         window.removeEventListener('message', handler);
         clearTimeout(timer);
+        delete document.documentElement.dataset.bridgeNonce;
         resolve({ ok: data.ok, error: data.error });
       }
     };
 
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
+      delete document.documentElement.dataset.bridgeNonce;
       resolve({ ok: false, error: 'main-world upload request timed out' });
     }, timeoutMs);
 
@@ -154,6 +163,7 @@ function requestMainWorldUpload(payload: FilePayload, timeoutMs: number): Promis
     const request: UploadRequest = {
       type: 'llm-bridge/upload',
       id,
+      nonce,
       dataBase64: payload.dataBase64,
       name: payload.name,
       mimeType: payload.mimeType,

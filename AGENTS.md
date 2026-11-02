@@ -1,4 +1,4 @@
-# Gemini Automation Bridge — Agent Instructions
+# LLM Automation Bridge — Agent Instructions
 
 Project-level rules. These supplement (and never override) the global rules in `~/.agents/AGENTS.md`.
 
@@ -36,9 +36,10 @@ Stop and ask the user. Do not look for a workaround (e.g., extracting pure logic
 
 | Directory | Purpose |
 |-----------|---------|
-| `entrypoints/` | WXT entrypoints: `background.ts`, `content.ts`, `popup/`, `history/` |
-| `utils/` | Shared logic: tab management, DOM interaction, response extraction |
-| `types/` | Messaging contract and shared types |
+| `entrypoints/` | WXT entrypoints: `background.ts`, `content.ts`, `upload-main.content.ts`, `popup/`, `history/` |
+| `providers/` | LLM provider implementations (Gemini, DeepSeek) and registry |
+| `utils/` | Shared logic: tab management, DOM interaction, response extraction, history storage |
+| `types/` | Messaging contract (`automation.ts`) and provider interface (`provider.ts`) |
 | `tests/` | Only `contract.test.ts` (pure validation tests) |
 
 ## Build & Dev

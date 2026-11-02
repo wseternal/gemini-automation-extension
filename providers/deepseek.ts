@@ -56,6 +56,7 @@ export const deepseekProvider: LlmProvider = {
     '.ds-toggle-button',
   ],
   fileAttachmentStrategy: 'file-input',
+  streamingDetection: 'svg-path',
 
   isProviderUrl(url: string | undefined): boolean {
     if (!url) return false;

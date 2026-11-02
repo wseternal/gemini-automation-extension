@@ -59,6 +59,7 @@ export async function dispatchAutomation(
   let managed: Awaited<ReturnType<typeof resolveTargetTab>> | undefined;
   let tabId: number | undefined;
   let succeeded = false;
+  let errorCode: string | undefined;
   try {
     managed = await resolveTargetTab(browserApi, provider, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs });
     tabId = managed.tabId;
@@ -90,6 +91,7 @@ export async function dispatchAutomation(
   } catch (e) {
     if (e instanceof AutomationErrorException) {
       const response = err(e.code, e.message, e.step);
+      errorCode = e.code;
       const stamped = tabId === undefined ? response : withTabId(response, tabId);
       const conversationUrl = tabId !== undefined ? await getTabUrl(browserApi, tabId) : undefined;
       await persistHistory(request, provider.id, stamped, conversationUrl);
@@ -97,15 +99,24 @@ export async function dispatchAutomation(
     }
     const message = e instanceof Error ? e.message : String(e);
     const response = err('INTERNAL', `automation dispatch failed: ${message}`);
+    errorCode = 'INTERNAL';
     const stamped = tabId === undefined ? response : withTabId(response, tabId);
     const conversationUrl = tabId !== undefined ? await getTabUrl(browserApi, tabId) : undefined;
     await persistHistory(request, provider.id, stamped, conversationUrl);
     return stamped;
   } finally {
-    // Only close the background tab on success; keep it open on error
-    // so the user can inspect what went wrong.
-    if (succeeded && managed?.shouldCloseAfter) {
-      await browserApi.tabs.remove(managed.tabId).catch(() => undefined);
+    // Close background tabs that automation created.
+    // On success: always close.
+    // On hard failures (tab not found, load timeout, invalid provider):
+    //   close — the tab state is not diagnostic.
+    // On soft failures (extraction, submit, attach):
+    //   keep open so the user can inspect what went wrong.
+    if (managed?.shouldCloseAfter) {
+      const hardFailures = new Set(['NO_TAB', 'TAB_LOAD_TIMEOUT', 'INVALID_PROVIDER']);
+      const shouldClose = succeeded || (errorCode && hardFailures.has(errorCode));
+      if (shouldClose) {
+        await browserApi.tabs.remove(managed.tabId).catch(() => undefined);
+      }
     }
   }
 }

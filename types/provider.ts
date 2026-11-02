@@ -69,4 +69,11 @@ export interface LlmProvider {
    * - 'drop-zone': use drag-and-drop on drop zone
    */
   readonly fileAttachmentStrategy: 'paste-bridge' | 'file-input' | 'drop-zone';
+
+  /**
+   * How to detect that the model is still streaming.
+   * - 'dom': look for the stop-button selector (Gemini)
+   * - 'svg-path': analyze the send button's SVG path attribute (DeepSeek)
+   */
+  readonly streamingDetection: 'dom' | 'svg-path';
 }

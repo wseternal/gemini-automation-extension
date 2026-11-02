@@ -25,6 +25,16 @@ import { extractResponse } from './response-extractor';
 import { ensureDeepThink } from './deepthink';
 import type { WaitOptions } from './dom-wait';
 
+const LOG_PREFIX = '[LLMBridge:runner]';
+
+function log(...args: unknown[]): void {
+  console.log(LOG_PREFIX, ...args);
+}
+
+function logWarn(...args: unknown[]): void {
+  console.warn(LOG_PREFIX, ...args);
+}
+
 export interface RunnerOptions {
   readonly waits?: WaitOptions;
   readonly attach?: AttachOptions;
@@ -70,25 +80,35 @@ export async function runAutomation(
   };
 
   try {
+    log(`[${provider.id}] starting automation`, { tabId: context.tabId });
+
     // DeepThink activation for providers that require it.
     if (provider.hasDeepThink && provider.deepThinkToggle) {
+      log(`[${provider.id}] step: deep-think`);
       await ensureDeepThink(root, provider.deepThinkToggle, options.waits);
       steps.push('deep-think');
+      log(`[${provider.id}] step: deep-think done`);
     }
     if (request.file) {
+      log(`[${provider.id}] step: attach-file "${request.file.name}"`);
       await attachFile(root, provider, request.file, options.attach);
       steps.push('attach-file');
+      log(`[${provider.id}] step: attach-file done`);
     }
+    log(`[${provider.id}] step: fill-prompt`);
     await fillPrompt(root, selectors, request.prompt, options.prompt);
     steps.push('fill-prompt');
+    log(`[${provider.id}] step: submit`);
     await submitPrompt(root, selectors, options.prompt);
     steps.push('submit');
+    log(`[${provider.id}] step: extract (timeout=${request.timeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS}ms)`);
     const result = await extractResponse(root, selectors, {
       timeoutMs: request.timeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS,
-      svgStopDetection: provider.id === 'deepseek',
+      svgStopDetection: provider.streamingDetection === 'svg-path',
       ...options.extraction,
     });
     steps.push('extract');
+    log(`[${provider.id}] completed in ${Date.now() - startedAt}ms`, { steps, streamingDetected: result.streamingDetected });
 
     return ok(result.text, {
       tabId: context.tabId,
