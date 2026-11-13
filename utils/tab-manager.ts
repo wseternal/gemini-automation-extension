@@ -92,7 +92,7 @@ export async function ensureTab(
   }
 
   const targetUrl = provider.urlPatterns[0].replace('/*', '');
-  const created = await browser.tabs.create({ url: targetUrl, active: false });
+  const created = await browser.tabs.create({ url: targetUrl, active: true });
   if (typeof created.id !== 'number') {
     throw new AutomationErrorException('NO_TAB', `Could not create a ${provider.name} tab`);
   }
