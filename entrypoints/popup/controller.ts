@@ -31,6 +31,7 @@ export interface PopupTransport {
 
 const TEMPLATE = `
   <h1 class="title">LLM Automation Bridge</h1>
+  <p id="ga-build-info" class="build-info"></p>
   <form id="ga-form" novalidate>
     <label class="label" for="ga-provider">Provider</label>
     <select id="ga-provider">
@@ -87,6 +88,9 @@ export class PopupController {
     private readonly transport: PopupTransport,
   ) {
     this.root.innerHTML = TEMPLATE;
+    // Stamp build info into the visible subtitle.
+    const buildInfo = this.root.querySelector<HTMLElement>('#ga-build-info');
+    if (buildInfo) buildInfo.textContent = `${__BUILD_VERSION__} \u00b7 ${__BUILD_TIME__}`;
     this.form.addEventListener('submit', (e) => {
       e.preventDefault();
       void this.run();
