@@ -260,11 +260,19 @@ export class HistoryController {
     await this.showList();
   }
 
-  /** Copy the text content of a detail section to the clipboard. */
+  /** Copy the rendered HTML and plain text of a detail section to the clipboard.
+   *  Writing both MIME types lets rich-text editors paste formatted content
+   *  (tables, headings, lists) while plain-text editors get readable text. */
   private async copySection(el: HTMLElement): Promise<void> {
-    const text = el.innerText || el.textContent || '';
     try {
-      await navigator.clipboard.writeText(text);
+      const html = el.innerHTML;
+      const text = el.innerText || el.textContent || '';
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ]);
       const btn = el.previousElementSibling?.querySelector<HTMLButtonElement>('.copy-button');
       if (btn) {
         const original = btn.textContent;
@@ -272,7 +280,12 @@ export class HistoryController {
         setTimeout(() => { btn.textContent = original; }, 1500);
       }
     } catch {
-      /* clipboard access denied — silently ignore */
+      /* clipboard access denied — fall back to plain text */
+      try {
+        await navigator.clipboard.writeText(el.innerText || el.textContent || '');
+      } catch {
+        /* clipboard fully blocked — silently ignore */
+      }
     }
   }
 }
