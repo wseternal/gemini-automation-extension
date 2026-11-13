@@ -18,13 +18,14 @@ import {
   TAB_LIST_RESPONSE,
   type AutomationRunRequest,
   type AutomationRunResponse,
+  type ConversationInfo,
   type HistoryEntry,
   type TabListResponse,
 } from '../types/automation';
 import { getProvider, getDefaultProvider, ALL_PROVIDERS } from '../providers';
 import type { LlmProviderId } from '../types/provider';
 import { resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
-import { generateHistoryId, saveHistoryEntry } from '../utils/history-storage';
+import { generateHistoryId, saveHistoryEntry, listHistoryConversations } from '../utils/history-storage';
 
 export const LAST_RESULT_KEY = 'llm-automation/last-result' as const;
 
@@ -61,7 +62,7 @@ export async function dispatchAutomation(
   let succeeded = false;
   let errorCode: string | undefined;
   try {
-    managed = await resolveTargetTab(browserApi, provider, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs });
+    managed = await resolveTargetTab(browserApi, provider, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs }, request.targetUrl);
     tabId = managed.tabId;
 
     let raw: unknown;
@@ -136,15 +137,42 @@ export default defineBackground(() => {
   );
 });
 
-/** Return lightweight descriptors of all open LLM provider tabs. */
+/** Return lightweight descriptors of all open LLM provider tabs and recent conversations. */
 async function handleTabList(browserApi: BrowserLike): Promise<TabListResponse> {
   const tabs = await listAllProviderTabs(browserApi, ALL_PROVIDERS);
-  return {
-    kind: TAB_LIST_RESPONSE,
-    tabs: tabs
-      .filter((t): t is typeof t & { id: number } => typeof t.id === 'number')
-      .map((t) => ({ tabId: t.id, title: t.title ?? t.url ?? '', url: t.url ?? '' })),
-  };
+  const openTabs = tabs
+    .filter((t): t is typeof t & { id: number } => typeof t.id === 'number')
+    .map((t) => ({ tabId: t.id, title: t.title ?? t.url ?? '', url: t.url ?? '' }));
+
+  // Build the merged conversations list: open tabs first, then history.
+  const openUrls = new Set(openTabs.map((t) => t.url));
+  const conversations: ConversationInfo[] = openTabs.map((t) => {
+    const provider = ALL_PROVIDERS.find((p) => p.isProviderUrl(t.url));
+    return {
+      tabId: t.tabId,
+      title: t.title,
+      url: t.url,
+      providerId: (provider?.id ?? 'gemini') as ConversationInfo['providerId'],
+      isOpen: true,
+    };
+  });
+
+  try {
+    const historyConvos = await listHistoryConversations(20);
+    for (const hc of historyConvos) {
+      if (openUrls.has(hc.url)) continue;
+      conversations.push({
+        title: hc.prompt,
+        url: hc.url,
+        providerId: hc.providerId,
+        isOpen: false,
+      });
+    }
+  } catch {
+    /* History read failure must not break the tab list response. */
+  }
+
+  return { kind: TAB_LIST_RESPONSE, tabs: openTabs, conversations };
 }
 
 /** Build a HistoryEntry from the request + response and persist it. */

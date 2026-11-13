@@ -28,6 +28,33 @@ export async function listHistoryEntries(): Promise<HistoryEntry[]> {
   return entries;
 }
 
+/** A unique conversation extracted from history for the popup dropdown. */
+export interface HistoryConversation {
+  readonly url: string;
+  readonly prompt: string;
+  readonly providerId: HistoryEntry['providerId'];
+}
+
+/** Return unique conversation URLs from recent history (newest first). */
+export async function listHistoryConversations(limit = 30): Promise<HistoryConversation[]> {
+  const entries = await readRaw();
+  entries.sort((a, b) => b.timestamp - a.timestamp);
+  const seen = new Set<string>();
+  const result: HistoryConversation[] = [];
+  for (const entry of entries) {
+    if (!entry.conversationUrl || entry.status !== 'ok') continue;
+    if (seen.has(entry.conversationUrl)) continue;
+    seen.add(entry.conversationUrl);
+    result.push({
+      url: entry.conversationUrl,
+      prompt: entry.prompt,
+      providerId: entry.providerId,
+    });
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
 /** Look up a single entry by id. */
 export async function getHistoryEntry(id: string): Promise<HistoryEntry | undefined> {
   const entries = await readRaw();

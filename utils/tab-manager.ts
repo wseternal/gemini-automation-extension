@@ -103,7 +103,8 @@ export async function ensureTab(
 /**
  * Resolve the tab for an automation run. When `targetTabId` is given the
  * request targets a specific user-chosen conversation — the tab is verified
- * but never created/closed. Otherwise falls back to
+ * but never created/closed. When `targetUrl` is given, find an existing
+ * tab at that URL or create a new one. Otherwise falls back to
  * {@link ensureTab} (new tabs open in the background and are flagged
  * for cleanup after the run).
  */
@@ -112,6 +113,7 @@ export async function resolveTargetTab(
   provider: LlmProvider,
   targetTabId: number | undefined,
   options: EnsureTabOptions = {},
+  targetUrl?: string,
 ): Promise<ManagedTab> {
   if (targetTabId !== undefined) {
     let tab: Tabs.Tab;
@@ -124,6 +126,22 @@ export async function resolveTargetTab(
       throw new AutomationErrorException('NO_TAB', `Tab ${targetTabId} is not a ${provider.name} conversation`);
     }
     return { tabId: targetTabId, url: tab.url ?? provider.urlPatterns[0], created: false, shouldCloseAfter: false };
+  }
+
+  if (targetUrl !== undefined) {
+    // Try to find an already-open tab at this exact URL.
+    const allTabs = await browser.tabs.query({});
+    const matching = allTabs.find((t) => t.url === targetUrl && typeof t.id === 'number');
+    if (matching && typeof matching.id === 'number') {
+      return { tabId: matching.id, url: matching.url ?? targetUrl, created: false, shouldCloseAfter: false };
+    }
+    // No matching open tab — create one and wait for it to load.
+    const created = await browser.tabs.create({ url: targetUrl, active: true });
+    if (typeof created.id !== 'number') {
+      throw new AutomationErrorException('NO_TAB', `Could not create a tab at ${targetUrl}`);
+    }
+    await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
+    return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: false };
   }
 
   // No target — reuse existing tab or create a new background tab.
