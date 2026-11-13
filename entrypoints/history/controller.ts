@@ -41,13 +41,11 @@ const TEMPLATE = `
       <div class="detail-section-header">
         <h2 class="subtitle">Prompt</h2>
         <button id="gh-copy-prompt" type="button" class="copy-button">Copy</button>
-        <button id="gh-copy-prompt-md" type="button" class="copy-button copy-md-button">Copy MD</button>
       </div>
       <div id="gh-detail-prompt" class="result-block markdown-body"></div>
       <div class="detail-section-header">
         <h2 class="subtitle" id="gh-detail-response-label">Response</h2>
         <button id="gh-copy-response" type="button" class="copy-button">Copy</button>
-        <button id="gh-copy-response-md" type="button" class="copy-button copy-md-button">Copy MD</button>
       </div>
       <div id="gh-detail-response" class="result-block markdown-body"></div>
       <div id="gh-detail-attachment" hidden>
@@ -65,10 +63,8 @@ export class HistoryController {
     this.root.innerHTML = TEMPLATE;
     this.clearButton.addEventListener('click', () => void this.onClearHistory());
     this.detailBack.addEventListener('click', () => void this.showList());
-    this.copyPromptButton.addEventListener('click', () => void this.copySection(this.detailPrompt));
-    this.copyResponseButton.addEventListener('click', () => void this.copySection(this.detailResponse));
-    this.copyPromptMdButton.addEventListener('click', () => void this.copyMarkdown(this.detailPrompt, this.copyPromptMdButton));
-    this.copyResponseMdButton.addEventListener('click', () => void this.copyMarkdown(this.detailResponse, this.copyResponseMdButton));
+    this.copyPromptButton.addEventListener('click', () => void this.copyMarkdown(this.detailPrompt, this.copyPromptButton));
+    this.copyResponseButton.addEventListener('click', () => void this.copyMarkdown(this.detailResponse, this.copyResponseButton));
     void this.showList();
   }
 
@@ -125,12 +121,6 @@ export class HistoryController {
   }
   private get copyResponseButton(): HTMLButtonElement {
     return this.qs('#gh-copy-response');
-  }
-  private get copyPromptMdButton(): HTMLButtonElement {
-    return this.qs('#gh-copy-prompt-md');
-  }
-  private get copyResponseMdButton(): HTMLButtonElement {
-    return this.qs('#gh-copy-response-md');
   }
 
   private setPhase(phase: HistoryPhase): void {
@@ -284,35 +274,6 @@ export class HistoryController {
       setTimeout(() => { btn.textContent = original; }, 1500);
     } catch {
       /* clipboard access denied — silently ignore */
-    }
-  }
-
-  /** Copy the rendered HTML and plain text of a detail section to the clipboard.
-   *  Writing both MIME types lets rich-text editors paste formatted content
-   *  (tables, headings, lists) while plain-text editors get readable text. */
-  private async copySection(el: HTMLElement): Promise<void> {
-    try {
-      const html = el.innerHTML;
-      const text = el.innerText || el.textContent || '';
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/html': new Blob([html], { type: 'text/html' }),
-          'text/plain': new Blob([text], { type: 'text/plain' }),
-        }),
-      ]);
-      const btn = el.previousElementSibling?.querySelector<HTMLButtonElement>('.copy-button');
-      if (btn) {
-        const original = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = original; }, 1500);
-      }
-    } catch {
-      /* clipboard access denied — fall back to plain text */
-      try {
-        await navigator.clipboard.writeText(el.innerText || el.textContent || '');
-      } catch {
-        /* clipboard fully blocked — silently ignore */
-      }
     }
   }
 }
