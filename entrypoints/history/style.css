@@ -177,6 +177,41 @@ button:focus-visible {
   margin-top: 3px;
 }
 
+.history-delete {
+  flex-shrink: 0;
+  opacity: 0;
+  width: 28px;
+  height: 28px;
+  min-height: unset;
+  padding: 0;
+  margin-top: 2px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #80868b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.history-item:hover .history-delete,
+.history-delete:focus-visible {
+  opacity: 1;
+}
+
+.history-delete:hover {
+  background: rgba(179, 38, 30, 0.1);
+  color: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .history-delete:hover {
+    background: rgba(179, 38, 30, 0.2);
+    color: #f28b82;
+  }
+}
+
 /* Detail view */
 .detail-card {
   padding: 0;

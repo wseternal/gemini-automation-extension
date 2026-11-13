@@ -66,6 +66,17 @@ export async function clearHistory(): Promise<void> {
   await browser.storage.local.remove(HISTORY_KEY);
 }
 
+/** Remove a single history entry by id. */
+export async function deleteHistoryEntry(id: string): Promise<void> {
+  const entries = await readRaw();
+  const filtered = entries.filter((e) => e.id !== id);
+  if (filtered.length === 0) {
+    await browser.storage.local.remove(HISTORY_KEY);
+  } else {
+    await browser.storage.local.set({ [HISTORY_KEY]: filtered });
+  }
+}
+
 async function readRaw(): Promise<HistoryEntry[]> {
   const result = await browser.storage.local.get(HISTORY_KEY);
   const raw = result[HISTORY_KEY];

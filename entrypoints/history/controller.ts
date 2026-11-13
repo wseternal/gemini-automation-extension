@@ -12,6 +12,7 @@ import {
   clearHistory,
   listHistoryEntries,
   getHistoryEntry,
+  deleteHistoryEntry,
 } from '../../utils/history-storage';
 
 export type HistoryPhase = 'list' | 'detail';
@@ -150,7 +151,23 @@ export class HistoryController {
         `<div class="history-preview">${escapeHtml(preview)}</div>` +
         `<div class="history-response-preview">${escapeHtml(responsePreview)}</div>` +
         `</div>` +
-        `<span class="history-time">${timeLabel}</span>`;
+        `<span class="history-time">${timeLabel}</span>` +
+        `<button type="button" class="history-delete" title="Delete" aria-label="Delete entry">&times;</button>`;
+
+      const deleteBtn = li.querySelector<HTMLButtonElement>('.history-delete');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          void this.onDeleteEntry(entry.id);
+        });
+        deleteBtn.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            void this.onDeleteEntry(entry.id);
+          }
+        });
+      }
 
       li.addEventListener('click', () => void this.showDetail(entry.id));
       li.addEventListener('keydown', (e) => {
@@ -222,6 +239,11 @@ export class HistoryController {
   private async onClearHistory(): Promise<void> {
     await clearHistory();
     this.renderList([]);
+  }
+
+  private async onDeleteEntry(id: string): Promise<void> {
+    await deleteHistoryEntry(id);
+    await this.showList();
   }
 }
 
