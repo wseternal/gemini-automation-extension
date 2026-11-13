@@ -50,6 +50,9 @@ const transport: PopupTransport = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Stamp the build version and time into the popup title bar.
+  document.title = `LLM Automation Bridge ${__BUILD_VERSION__} ${__BUILD_TIME__}`;
+
   const root = document.getElementById('app');
   if (!root) return;
   const controller = new PopupController(root, transport);

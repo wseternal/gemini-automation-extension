@@ -122,6 +122,11 @@ export async function dispatchAutomation(
 }
 
 export default defineBackground(() => {
+  // Set the toolbar tooltip to include the build version and time.
+  wxtBrowser.action.setTitle({
+    title: `LLM Automation Bridge ${__BUILD_VERSION__} ${__BUILD_TIME__}`,
+  });
+
   wxtBrowser.runtime.onMessage.addListener(
     (message: unknown, _sender: Runtime.MessageSender): Promise<AutomationRunResponse | TabListResponse> | undefined => {
       if (isTabListRequest(message)) return handleTabList(wxtBrowser);
