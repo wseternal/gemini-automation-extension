@@ -68,8 +68,13 @@ function performUpload(dataBase64: string, name: string, mimeType: string): { ok
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const file = new File([bytes], name, { type: mimeType });
 
-    // 2. Strategy A: Direct file input (DeepSeek and generic sites).
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+    // 2. Strategy A: Direct file input.
+    //    Gemini: images-files-uploader has the main document upload input.
+    //    DeepSeek / generic: fall back to any input[type="file"].
+    const fileInput =
+      (document.querySelector('images-files-uploader input[type="file"]') ||
+        document.querySelector('input[type="file"].hidden-file-input') ||
+        document.querySelector('input[type="file"]')) as HTMLInputElement | null;
     if (fileInput) {
       const dt = new DataTransfer();
       dt.items.add(file);
@@ -85,7 +90,8 @@ function performUpload(dataBase64: string, name: string, mimeType: string): { ok
     // 3. Strategy B: Paste event on contenteditable editor (Gemini).
     const editor =
       document.querySelector('.ql-editor[contenteditable="true"]') ||
-      document.querySelector('[contenteditable="true"][role="textbox"]');
+      document.querySelector('[contenteditable="true"][role="textbox"]') ||
+      document.querySelector('[aria-label="Enter a prompt for Gemini"]');
     if (editor) {
       const dt = new DataTransfer();
       dt.items.add(file);
@@ -123,8 +129,9 @@ function performUpload(dataBase64: string, name: string, mimeType: string): { ok
     // 5. Strategy D: Drop on drop zone directive element (final backup).
     const dropZone =
       document.querySelector('[xapfileselectordropzone]') ||
+      document.querySelector('.text-input-field.simplified-input-area') ||
       document.querySelector('[file-drop-zone]') ||
-      document.querySelector('.xap-uploader-dropzone');
+      document.querySelector('.initial-input-area-container');
     if (dropZone) {
       const dt3 = new DataTransfer();
       dt3.items.add(file);
