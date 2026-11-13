@@ -6,6 +6,7 @@ import { browser } from 'wxt/browser';
 import type {
   AutomationRunRequest,
   AutomationRunResponse,
+  ConversationInfo,
   TabInfo,
   TabListResponse,
 } from '../../types/automation';
@@ -22,11 +23,14 @@ const transport: PopupTransport = {
   openHistory: () => {
     browser.tabs.create({ url: browser.runtime.getURL('/history.html') });
   },
-  listTabs: async (): Promise<TabInfo[]> => {
+  listTabs: async (): Promise<{ tabs: TabInfo[]; conversations: ConversationInfo[] }> => {
     const response = (await browser.runtime.sendMessage({
       kind: TAB_LIST_REQUEST,
     })) as TabListResponse;
-    return [...response.tabs];
+    return {
+      tabs: [...response.tabs],
+      conversations: [...(response.conversations ?? [])],
+    };
   },
   getSelectedProvider: async (): Promise<LlmProviderId> => {
     const result = await browser.storage.local.get(PROVIDER_STORAGE_KEY);

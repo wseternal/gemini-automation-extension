@@ -12,6 +12,7 @@ import {
   validateFilePayload,
   type AutomationRunRequest,
   type AutomationRunResponse,
+  type ConversationInfo,
   type FilePayload,
   type TabInfo,
 } from '../../types/automation';
@@ -22,7 +23,7 @@ export type PopupPhase = 'idle' | 'running' | 'success' | 'error';
 export interface PopupTransport {
   run(request: AutomationRunRequest): Promise<AutomationRunResponse>;
   openHistory(): void;
-  listTabs(): Promise<TabInfo[]>;
+  listTabs(): Promise<{ tabs: TabInfo[]; conversations: ConversationInfo[] }>;
   getSelectedProvider(): Promise<LlmProviderId>;
   setSelectedProvider(id: LlmProviderId): Promise<void>;
   /** Retrieve the last persisted result (for popup reopen recovery). */
@@ -31,6 +32,7 @@ export interface PopupTransport {
 
 const TEMPLATE = `
   <h1 class="title">LLM Automation Bridge</h1>
+  <p id="ga-build-info" class="build-info"></p>
   <form id="ga-form" novalidate>
     <label class="label" for="ga-provider">Provider</label>
     <select id="ga-provider">
@@ -87,6 +89,9 @@ export class PopupController {
     private readonly transport: PopupTransport,
   ) {
     this.root.innerHTML = TEMPLATE;
+    // Stamp build info into the visible subtitle.
+    const buildInfo = this.root.querySelector<HTMLElement>('#ga-build-info');
+    if (buildInfo) buildInfo.textContent = `${__BUILD_VERSION__} \u00b7 ${__BUILD_TIME__}`;
     this.form.addEventListener('submit', (e) => {
       e.preventDefault();
       void this.run();
@@ -196,19 +201,43 @@ export class PopupController {
     };
   }
 
-  /** Populate the conversation dropdown from open LLM tabs. */
+  /** Populate the conversation dropdown from open tabs and historical conversations. */
   private async loadTabs(): Promise<void> {
     try {
-      const tabs = await this.transport.listTabs();
+      const { conversations } = await this.transport.listTabs();
       const select = this.tabSelect;
       select.innerHTML = '<option value="new">+ New conversation</option>';
-      for (const tab of tabs) {
+  
+      const providerId = this.providerSelect.value as LlmProviderId;
+      const openConversations = conversations.filter((c) => c.isOpen);
+      const historyConversations = conversations.filter(
+        (c) => !c.isOpen && c.providerId === providerId,
+      );
+  
+      for (const convo of openConversations) {
         const opt = document.createElement('option');
-        opt.value = String(tab.tabId);
-        const shortTitle = tab.title.length > 40 ? tab.title.slice(0, 40) + '…' : tab.title;
-        opt.textContent = shortTitle || tab.url;
+        opt.value = convo.tabId !== undefined ? String(convo.tabId) : convo.url;
+        opt.textContent = (convo.title.length > 40 ? convo.title.slice(0, 40) + '\u2026' : convo.title) || convo.url;
+        opt.dataset.type = 'tab';
         select.appendChild(opt);
       }
+  
+      if (historyConversations.length > 0) {
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '\u2500\u2500 History \u2500\u2500';
+        select.appendChild(separator);
+  
+        for (const convo of historyConversations) {
+          const opt = document.createElement('option');
+          opt.value = convo.url;
+          const shortTitle = convo.title.length > 40 ? convo.title.slice(0, 40) + '\u2026' : convo.title;
+          opt.textContent = shortTitle || convo.url;
+          opt.dataset.type = 'history';
+          select.appendChild(opt);
+        }
+      }
+  
       select.disabled = false;
     } catch {
       // If tab listing fails, keep the dropdown with just "New conversation".
@@ -259,7 +288,10 @@ export class PopupController {
     }
 
     const selectedValue = this.tabSelect.value;
-    const targetTabId = selectedValue === 'new' ? undefined : Number(selectedValue);
+    const selectedOption = this.tabSelect.options[this.tabSelect.selectedIndex];
+    const isHistory = selectedOption?.dataset.type === 'history';
+    const targetTabId = selectedValue === 'new' || isHistory ? undefined : Number(selectedValue);
+    const targetUrl = isHistory ? selectedValue : undefined;
 
     const providerId = this.providerSelect.value as LlmProviderId;
     const request: AutomationRunRequest = {
@@ -268,6 +300,7 @@ export class PopupController {
       providerId,
       ...(filePayload ? { file: filePayload } : {}),
       ...(targetTabId !== undefined ? { targetTabId } : {}),
+      ...(targetUrl !== undefined ? { targetUrl } : {}),
     };
 
     this.setPhase('running');

@@ -146,4 +146,24 @@ describe('cleanOutput', () => {
   it('handles only whitespace', () => {
     expect(cleanOutput('   \n\n   ')).toBe('');
   });
+
+  it('strips leading Gemini said attribution', () => {
+    expect(cleanOutput('Gemini said\nHello world')).toBe('Hello world');
+  });
+
+  it('strips leading DeepSeek said attribution', () => {
+    expect(cleanOutput('DeepSeek said\nSome response')).toBe('Some response');
+  });
+
+  it('strips case-insensitive ChatGPT said attribution', () => {
+    expect(cleanOutput('chatgpt said\nAnswer here')).toBe('Answer here');
+  });
+
+  it('does not strip attribution mid-text', () => {
+    expect(cleanOutput('Hello\nGemini said\nworld')).toBe('Hello\nGemini said\nworld');
+  });
+
+  it('strips attribution with trailing newlines', () => {
+    expect(cleanOutput('Claude said\n\nActual content')).toBe('Actual content');
+  });
 });

@@ -66,6 +66,8 @@ export interface AutomationRunRequest {
   readonly timeoutMs?: number;
   /** Specific tab to reuse (skip tab search). */
   readonly targetTabId?: number;
+  /** URL to navigate to (opens a new tab or reuses one at this URL). */
+  readonly targetUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +81,17 @@ export interface TabInfo {
   readonly url: string;
 }
 
+/** Descriptor of a conversation — either an open tab or a historical entry. */
+export interface ConversationInfo {
+  /** Tab ID when the conversation is currently open. */
+  readonly tabId?: number;
+  readonly title: string;
+  readonly url: string;
+  readonly providerId: LlmProviderId;
+  /** True when the conversation is an open browser tab. */
+  readonly isOpen: boolean;
+}
+
 export interface TabListRequest {
   readonly kind: typeof TAB_LIST_REQUEST;
 }
@@ -86,6 +99,7 @@ export interface TabListRequest {
 export interface TabListResponse {
   readonly kind: typeof TAB_LIST_RESPONSE;
   readonly tabs: readonly TabInfo[];
+  readonly conversations: readonly ConversationInfo[];
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +218,7 @@ export function isAutomationRunRequest(msg: unknown): msg is AutomationRunReques
   if (msg.providerId !== undefined && typeof msg.providerId !== 'string') return false;
   if (msg.timeoutMs !== undefined && (typeof msg.timeoutMs !== 'number' || msg.timeoutMs <= 0)) return false;
   if (msg.targetTabId !== undefined && (typeof msg.targetTabId !== 'number' || msg.targetTabId <= 0)) return false;
+  if (msg.targetUrl !== undefined && typeof msg.targetUrl !== 'string') return false;
   return true;
 }
 

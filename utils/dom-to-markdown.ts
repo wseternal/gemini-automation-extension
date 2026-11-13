@@ -303,9 +303,10 @@ export function escapeMarkdown(text: string): string {
     .replace(/`/g, '\\`');
 }
 
-/** Clean up excessive blank lines and trim. Exported for contract testing. */
+/** Clean up excessive blank lines, trim, and strip UI attribution. Exported for contract testing. */
 export function cleanOutput(text: string): string {
   return text
     .replace(/\n{3,}/g, '\n\n') // collapse 3+ newlines to 2
+    .replace(/^(?:Gemini|DeepSeek|ChatGPT|Claude)\s+said\s*\n*/i, '') // strip UI attribution
     .trim();
 }
