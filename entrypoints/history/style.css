@@ -81,6 +81,11 @@ body {
   color: #fff;
 }
 
+.copy-md-button {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+}
+
 @media (prefers-color-scheme: dark) {
   .copy-button {
     border-color: #3c4043;

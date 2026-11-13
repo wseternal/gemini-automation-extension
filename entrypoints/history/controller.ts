@@ -41,11 +41,13 @@ const TEMPLATE = `
       <div class="detail-section-header">
         <h2 class="subtitle">Prompt</h2>
         <button id="gh-copy-prompt" type="button" class="copy-button">Copy</button>
+        <button id="gh-copy-prompt-md" type="button" class="copy-button copy-md-button">Copy MD</button>
       </div>
       <div id="gh-detail-prompt" class="result-block markdown-body"></div>
       <div class="detail-section-header">
         <h2 class="subtitle" id="gh-detail-response-label">Response</h2>
         <button id="gh-copy-response" type="button" class="copy-button">Copy</button>
+        <button id="gh-copy-response-md" type="button" class="copy-button copy-md-button">Copy MD</button>
       </div>
       <div id="gh-detail-response" class="result-block markdown-body"></div>
       <div id="gh-detail-attachment" hidden>
@@ -65,6 +67,8 @@ export class HistoryController {
     this.detailBack.addEventListener('click', () => void this.showList());
     this.copyPromptButton.addEventListener('click', () => void this.copySection(this.detailPrompt));
     this.copyResponseButton.addEventListener('click', () => void this.copySection(this.detailResponse));
+    this.copyPromptMdButton.addEventListener('click', () => void this.copyMarkdown(this.detailPrompt, this.copyPromptMdButton));
+    this.copyResponseMdButton.addEventListener('click', () => void this.copyMarkdown(this.detailResponse, this.copyResponseMdButton));
     void this.showList();
   }
 
@@ -121,6 +125,12 @@ export class HistoryController {
   }
   private get copyResponseButton(): HTMLButtonElement {
     return this.qs('#gh-copy-response');
+  }
+  private get copyPromptMdButton(): HTMLButtonElement {
+    return this.qs('#gh-copy-prompt-md');
+  }
+  private get copyResponseMdButton(): HTMLButtonElement {
+    return this.qs('#gh-copy-response-md');
   }
 
   private setPhase(phase: HistoryPhase): void {
@@ -223,6 +233,7 @@ export class HistoryController {
     }
 
     // Prompt (rendered as markdown)
+    this.detailPrompt.dataset.markdown = entry.prompt;
     this.detailPrompt.innerHTML = renderSafeMarkdown(entry.prompt);
 
     // Response or error (rendered as markdown)
@@ -230,11 +241,14 @@ export class HistoryController {
       this.detailResponseLabel.textContent = 'Response';
       // Prefer structured markdown when available; fall back to plain text.
       const md = entry.responseMarkdown || entry.responseText || '(empty response)';
+      this.detailResponse.dataset.markdown = md;
       this.detailResponse.innerHTML = renderSafeMarkdown(md);
       this.detailResponse.classList.remove('error-text');
     } else {
       this.detailResponseLabel.textContent = 'Error';
-      this.detailResponse.textContent = `[${entry.errorCode ?? 'UNKNOWN'}] ${entry.errorMessage ?? 'Unknown error'}`;
+      const errorText = `[${entry.errorCode ?? 'UNKNOWN'}] ${entry.errorMessage ?? 'Unknown error'}`;
+      this.detailResponse.dataset.markdown = errorText;
+      this.detailResponse.textContent = errorText;
       this.detailResponse.classList.add('error-text');
     }
 
@@ -258,6 +272,19 @@ export class HistoryController {
   private async onDeleteEntry(id: string): Promise<void> {
     await deleteHistoryEntry(id);
     await this.showList();
+  }
+
+  /** Copy the raw markdown source of a section to the clipboard. */
+  private async copyMarkdown(el: HTMLElement, btn: HTMLButtonElement): Promise<void> {
+    const source = el.dataset.markdown || el.innerText || el.textContent || '';
+    try {
+      await navigator.clipboard.writeText(source);
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch {
+      /* clipboard access denied — silently ignore */
+    }
   }
 
   /** Copy the rendered HTML and plain text of a detail section to the clipboard.
