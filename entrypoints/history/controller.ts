@@ -38,9 +38,15 @@ const TEMPLATE = `
         <span id="gh-detail-time" class="detail-time"></span>
       </div>
       <a id="gh-detail-url" class="conversation-link" hidden target="_blank" rel="noopener">Open in Gemini</a>
-      <h2 class="subtitle">Prompt</h2>
+      <div class="detail-section-header">
+        <h2 class="subtitle">Prompt</h2>
+        <button id="gh-copy-prompt" type="button" class="copy-button">Copy</button>
+      </div>
       <div id="gh-detail-prompt" class="result-block markdown-body"></div>
-      <h2 class="subtitle" id="gh-detail-response-label">Response</h2>
+      <div class="detail-section-header">
+        <h2 class="subtitle" id="gh-detail-response-label">Response</h2>
+        <button id="gh-copy-response" type="button" class="copy-button">Copy</button>
+      </div>
       <div id="gh-detail-response" class="result-block markdown-body"></div>
       <div id="gh-detail-attachment" hidden>
         <h2 class="subtitle">Attachment</h2>
@@ -57,6 +63,8 @@ export class HistoryController {
     this.root.innerHTML = TEMPLATE;
     this.clearButton.addEventListener('click', () => void this.onClearHistory());
     this.detailBack.addEventListener('click', () => void this.showList());
+    this.copyPromptButton.addEventListener('click', () => void this.copySection(this.detailPrompt));
+    this.copyResponseButton.addEventListener('click', () => void this.copySection(this.detailResponse));
     void this.showList();
   }
 
@@ -107,6 +115,12 @@ export class HistoryController {
   }
   private get detailAttachmentInfo(): HTMLElement {
     return this.qs('#gh-detail-attachment-info');
+  }
+  private get copyPromptButton(): HTMLButtonElement {
+    return this.qs('#gh-copy-prompt');
+  }
+  private get copyResponseButton(): HTMLButtonElement {
+    return this.qs('#gh-copy-response');
   }
 
   private setPhase(phase: HistoryPhase): void {
@@ -244,6 +258,22 @@ export class HistoryController {
   private async onDeleteEntry(id: string): Promise<void> {
     await deleteHistoryEntry(id);
     await this.showList();
+  }
+
+  /** Copy the text content of a detail section to the clipboard. */
+  private async copySection(el: HTMLElement): Promise<void> {
+    const text = el.innerText || el.textContent || '';
+    try {
+      await navigator.clipboard.writeText(text);
+      const btn = el.previousElementSibling?.querySelector<HTMLButtonElement>('.copy-button');
+      if (btn) {
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      }
+    } catch {
+      /* clipboard access denied — silently ignore */
+    }
   }
 }
 
