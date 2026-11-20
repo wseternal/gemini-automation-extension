@@ -5,6 +5,9 @@
  * tab via the tab manager (reuse-first), dispatches to the content script,
  * stamps tab metadata, and hands the latest result off via storage.session
  * so a reopened popup can recover it.
+ *
+ * Also starts the long-polling client when configured, enabling the AI
+ * automation proxy to deliver jobs to this extension.
  */
 import { browser as wxtBrowser } from 'wxt/browser';
 import type { Runtime } from 'wxt/browser';
@@ -26,6 +29,7 @@ import { getProvider, getDefaultProvider, ALL_PROVIDERS } from '../providers';
 import type { LlmProviderId } from '../types/provider';
 import { resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
 import { generateHistoryId, saveHistoryEntry, listHistoryConversations } from '../utils/history-storage';
+import { startLongPollClient, LONG_POLL_CONFIG_KEY, type LongPollConfig } from '../utils/long-poll-client';
 
 export const LAST_RESULT_KEY = 'llm-automation/last-result' as const;
 
@@ -135,7 +139,23 @@ export default defineBackground(() => {
       return dispatchAutomation(wxtBrowser, message);
     },
   );
+
+  // Start long-polling client if configured.
+  initLongPollClient();
 });
+
+/** Read config from storage and start the long-polling client if enabled. */
+async function initLongPollClient(): Promise<void> {
+  try {
+    const stored = await wxtBrowser.storage.local.get(LONG_POLL_CONFIG_KEY);
+    const config = stored[LONG_POLL_CONFIG_KEY] as LongPollConfig | undefined;
+    if (!config?.enabled || !config.proxyUrl) return;
+    console.log('[long-poll] starting client:', config.proxyUrl);
+    startLongPollClient(config, (req) => dispatchAutomation(wxtBrowser, req));
+  } catch (error) {
+    console.error('[long-poll] init failed:', error);
+  }
+}
 
 /** Return lightweight descriptors of all open LLM provider tabs and recent conversations. */
 async function handleTabList(browserApi: BrowserLike): Promise<TabListResponse> {
@@ -209,7 +229,7 @@ async function persistHistory(
   });
 }
 
-/** Retrieve the current URL of a tab, returning undefined on failure. */
+/** Retrieve the current URL of a tab, return undefined on failure. */
 async function getTabUrl(browserApi: BrowserLike, tabId: number): Promise<string | undefined> {
   try {
     const tab = await browserApi.tabs.get(tabId);
