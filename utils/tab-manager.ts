@@ -77,16 +77,6 @@ export async function waitForTabComplete(browser: BrowserLike, tabId: number, ti
 }
 
 /**
- * Bring a tab to the foreground before automating it. A backgrounded composer
- * does not reliably accept the synthetic fill/submit — Gemini keeps its Send
- * control disabled and ignores the synthetic click until the tab is visible —
- * so a backgrounded run times out waiting for the kickoff signal.
- */
-export async function activateTab(browser: BrowserLike, tabId: number): Promise<void> {
-  await browser.tabs.update(tabId, { active: true }).catch(() => undefined);
-}
-
-/**
  * Resolve the tab all automation runs against. Reuse is the rule — creating
  * a tab is the fallback, so the user's authenticated session is never
  * re-challenged.

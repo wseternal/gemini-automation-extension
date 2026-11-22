@@ -30,7 +30,7 @@ import {
 } from '../types/automation';
 import { getProvider, ALL_PROVIDERS, listProviderIds } from '../providers';
 import type { LlmProviderId } from '../types/provider';
-import { activateTab, resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
+import { resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
 import { generateHistoryId, saveHistoryEntry, listHistoryConversations } from '../utils/history-storage';
 import {
   startLongPollClient,
@@ -96,10 +96,6 @@ export async function dispatchAutomation(
   try {
     managed = await resolveTargetTab(browserApi, provider, request.targetTabId, { loadTimeoutMs: options.loadTimeoutMs }, request.targetUrl);
     tabId = managed.tabId;
-
-    // A backgrounded composer does not accept the synthetic submit; bring the
-    // tab to the foreground before filling or prompting it.
-    await activateTab(browserApi, tabId);
 
     let raw: unknown;
     try {
