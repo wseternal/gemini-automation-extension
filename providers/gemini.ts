@@ -6,7 +6,7 @@ import type { LlmProvider, ProviderSelectors } from '../types/provider';
 const SELECTORS: ProviderSelectors = {
   promptEditor: [
     'div.ql-editor[contenteditable="true"]',
-    'rich-textarea div[contenteditable="true"]',
+    'rich-textarea div.ql-editor[contenteditable="true"]',
     'div[contenteditable="true"][role="textbox"]',
     'div[contenteditable="true"][aria-label]',
     '.initial-input-area-container textarea',

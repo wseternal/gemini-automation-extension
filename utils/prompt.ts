@@ -12,16 +12,8 @@ export interface PromptOptions extends WaitOptions {
   readonly kickoffTimeoutMs?: number;
 }
 
-/** Budget for the Send button to appear after a programmatic fill. */
+/** Budget for the Send button to appear and enable after a programmatic fill. */
 const SEND_BUTTON_TIMEOUT_MS = 2_000;
-/** Short grace for a button that is present but still disabled. */
-const SEND_BUTTON_ENABLE_GRACE_MS = 250;
-
-interface SendButtonInspection {
-  readonly element: HTMLElement | null;
-  /** True when the selector matched, even if the control is disabled/hidden. */
-  readonly present: boolean;
-}
 
 /**
  * Notify editors that track keyboard activity. Gemini's composer shows and
@@ -36,9 +28,11 @@ function dispatchKeyboardEvent(
   keyCode: number,
 ): void {
   const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, key, code });
-  // KeyboardEventInit no longer carries keyCode; legacy handlers still read it.
+  // KeyboardEventInit no longer carries keyCode/which; legacy handlers still read them.
   try {
     Object.defineProperty(event, 'keyCode', { value: keyCode, configurable: true });
+    Object.defineProperty(event, 'which', { value: keyCode, configurable: true });
+    Object.defineProperty(event, 'charCode', { value: type === 'keypress' ? keyCode : 0, configurable: true });
   } catch {
     // A locked-down event object simply falls back to key/code.
   }
@@ -109,17 +103,12 @@ export async function fillPrompt(
   reportKeyboardActivity(editor);
 }
 
-/** Return a send button that is present, enabled, and rendered. */
-function inspectSendButton(root: ParentNode, selectors: ProviderSelectors): SendButtonInspection {
-  const el = queryFirst(root, selectors.sendButton);
-  if (!(el instanceof HTMLElement)) return { element: null, present: false };
-  if (isDisabledSendButton(el, selectors)) return { element: null, present: true };
-  if (el.getClientRects().length === 0) return { element: null, present: true };
-  return { element: el, present: true };
-}
-
 function isDisabledSendButton(el: HTMLElement, selectors: ProviderSelectors): boolean {
   if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return true;
+  // The custom-element host (e.g. Gemini's `gem-icon-button`) carries the
+  // disabled state even when the inner button does not expose it.
+  const host = el.closest('[aria-disabled="true"]');
+  if (host && host !== el) return true;
   for (const selector of selectors.sendButtonDisabled ?? []) {
     try {
       if (el.matches(selector)) return true;
@@ -128,6 +117,15 @@ function isDisabledSendButton(el: HTMLElement, selectors: ProviderSelectors): bo
     }
   }
   return false;
+}
+
+/** Return the send button only when it is present, enabled, and rendered. */
+function findEnabledSendButton(root: ParentNode, selectors: ProviderSelectors): HTMLElement | null {
+  const el = queryFirst(root, selectors.sendButton);
+  if (!(el instanceof HTMLElement)) return null;
+  if (isDisabledSendButton(el, selectors)) return null;
+  if (el.getClientRects().length === 0) return null;
+  return el;
 }
 
 /**
@@ -140,39 +138,21 @@ export async function submitPrompt(
   selectors: ProviderSelectors,
   options: PromptOptions = {},
 ): Promise<void> {
-  // Wait up to 2s for a send button to exist at all. If one exists but is
-  // disabled, only allow a 250ms enable grace before falling back to Enter.
-  let inspection: SendButtonInspection;
+  // Wait the full budget for an enabled, rendered Send button. The button can
+  // appear one tick after the fill, when the editor's framework state updates;
+  // only fall back to Enter when no usable button shows in time.
+  let sendButton: HTMLElement | null = null;
   try {
-    inspection = await waitForCondition(
-      () => {
-        const candidate = inspectSendButton(root, selectors);
-        return candidate.present ? candidate : null;
-      },
-      'send button',
+    sendButton = await waitForCondition(
+      () => findEnabledSendButton(root, selectors),
+      'enabled send button',
       { timeoutMs: SEND_BUTTON_TIMEOUT_MS, intervalMs: options.intervalMs ?? 50 },
     );
   } catch (error) {
     if (!(error instanceof WaitTimeoutError)) {
       throw toPromptError('SUBMIT_FAILED', error, 'submit');
     }
-    inspection = { element: null, present: false };
-  }
-
-  let sendButton = inspection.element;
-  if (inspection.present && !sendButton) {
-    try {
-      sendButton = await waitForCondition(
-        () => inspectSendButton(root, selectors).element,
-        'enabled send button',
-        { timeoutMs: SEND_BUTTON_ENABLE_GRACE_MS, intervalMs: options.intervalMs ?? 50 },
-      );
-    } catch (error) {
-      if (!(error instanceof WaitTimeoutError)) {
-        throw toPromptError('SUBMIT_FAILED', error, 'submit');
-      }
-      sendButton = null;
-    }
+    sendButton = null;
   }
 
   if (sendButton) {
