@@ -5,6 +5,9 @@
  * tab via the tab manager (reuse-first), dispatches to the content script,
  * stamps tab metadata, and hands the latest result off via storage.session
  * so a reopened popup can recover it.
+ *
+ * Also starts the long-polling client when configured, enabling the AI
+ * automation proxy to deliver jobs to this extension.
  */
 import { browser as wxtBrowser } from 'wxt/browser';
 import type { Runtime } from 'wxt/browser';
@@ -26,6 +29,13 @@ import { getProvider, getDefaultProvider, ALL_PROVIDERS } from '../providers';
 import type { LlmProviderId } from '../types/provider';
 import { resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
 import { generateHistoryId, saveHistoryEntry, listHistoryConversations } from '../utils/history-storage';
+import { startLongPollClient } from '../utils/long-poll-client';
+import {
+  loadLongPollConfig,
+  LONG_POLL_CONFIG_KEY,
+  LONG_POLL_STATUS_KEY,
+  type LongPollStatus,
+} from '../utils/long-poll-config';
 
 export const LAST_RESULT_KEY = 'llm-automation/last-result' as const;
 
@@ -122,6 +132,61 @@ export async function dispatchAutomation(
   }
 }
 
+let longPollClient: { stop: () => void } | undefined;
+let restartQueue: Promise<void> = Promise.resolve();
+let lastLongPollStatus = '';
+let lastLongPollStatusAt = 0;
+
+/** Refresh the status timestamp at most once per interval. */
+const STATUS_REFRESH_MS = 30_000;
+
+/** Write the client status to storage when the value changes or the report is stale. */
+function reportLongPollStatus(
+  state: LongPollStatus['state'],
+  proxyUrl?: string,
+  message?: string,
+): void {
+  const signature = `${state}|${proxyUrl ?? ''}|${message ?? ''}`;
+  const now = Date.now();
+  if (signature === lastLongPollStatus && now - lastLongPollStatusAt < STATUS_REFRESH_MS) return;
+  lastLongPollStatus = signature;
+  lastLongPollStatusAt = now;
+  const status: LongPollStatus = {
+    state,
+    ...(proxyUrl ? { proxyUrl } : {}),
+    ...(message ? { message } : {}),
+    updatedAt: now,
+  };
+  void wxtBrowser.storage.local.set({ [LONG_POLL_STATUS_KEY]: status }).catch(() => undefined);
+}
+
+/** Stop the running client and start again from the saved config. */
+async function applyLongPollConfig(): Promise<void> {
+  longPollClient?.stop();
+  longPollClient = undefined;
+  lastLongPollStatus = '';
+
+  const config = await loadLongPollConfig();
+  if (!config.enabled || !config.proxyUrl) {
+    reportLongPollStatus('disabled');
+    return;
+  }
+
+  reportLongPollStatus('polling', config.proxyUrl);
+  longPollClient = startLongPollClient(config, (req) => dispatchAutomation(wxtBrowser, req), {
+    onState: (state, message) => reportLongPollStatus(state, config.proxyUrl, message),
+  });
+}
+
+/** Queue a restart so two quick saves cannot start two clients. */
+function restartLongPollClient(): void {
+  restartQueue = restartQueue
+    .then(applyLongPollConfig)
+    .catch((error) => {
+      console.error('[long-poll] init failed:', error);
+    });
+}
+
 export default defineBackground(() => {
   // Set the toolbar tooltip to include the build version and time.
   wxtBrowser.action.setTitle({
@@ -135,6 +200,12 @@ export default defineBackground(() => {
       return dispatchAutomation(wxtBrowser, message);
     },
   );
+
+  // Start long-polling client if configured. Restart it when the settings change.
+  wxtBrowser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && LONG_POLL_CONFIG_KEY in changes) restartLongPollClient();
+  });
+  restartLongPollClient();
 });
 
 /** Return lightweight descriptors of all open LLM provider tabs and recent conversations. */
@@ -209,7 +280,7 @@ async function persistHistory(
   });
 }
 
-/** Retrieve the current URL of a tab, returning undefined on failure. */
+/** Retrieve the current URL of a tab, return undefined on failure. */
 async function getTabUrl(browserApi: BrowserLike, tabId: number): Promise<string | undefined> {
   try {
     const tab = await browserApi.tabs.get(tabId);

@@ -40,7 +40,7 @@ Stop and ask the user. Do not look for a workaround (e.g., extracting pure logic
 
 | Directory | Purpose |
 |-----------|---------|
-| `entrypoints/` | WXT entrypoints: `background.ts`, `content.ts`, `upload-main.content.ts`, `popup/`, `history/` |
+| `entrypoints/` | WXT entrypoints: `background.ts`, `content.ts`, `upload-main.content.ts`, `popup/`, `options/`, `history/` |
 | `providers/` | LLM provider implementations (Gemini, DeepSeek) and registry |
 | `utils/` | Shared logic: tab management, DOM interaction, response extraction, history storage |
 | `types/` | Messaging contract (`automation.ts`) and provider interface (`provider.ts`) |

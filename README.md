@@ -40,6 +40,23 @@ const response = await chrome.runtime.sendMessage({
 
 The full message protocol lives in **`types/automation.ts`** — request shape, response shape, and every error code.
 
+## Long-polling Proxy
+
+The extension can accept automation jobs from a local proxy server.
+
+1. Click the extension action. Click **Bridge settings**.
+2. Select **Enable long-polling client**.
+3. Set **Proxy URL** to the proxy base URL, for example `http://localhost:9090`.
+4. Click **Save**.
+
+The client polls `<proxyUrl>/poll` and posts each result to `<proxyUrl>/result`. The settings page shows the client state: active, disabled, or a connection error.
+
+The popup title shows a status dot. A green dot means active. A red dot means an error. A grey dot means the client is off. A hollow dot means no status yet. Hover the dot to show the state in a tooltip.
+
+The manifest grants `http://localhost:*` and `http://127.0.0.1:*` only. The options page accepts no other host.
+
+The browser can suspend the background service worker. The client starts again when the service worker starts.
+
 ## Architecture
 
 | Path | Role |
@@ -52,7 +69,10 @@ The full message protocol lives in **`types/automation.ts`** — request shape, 
 | `entrypoints/content.ts` | On-page listener; delegates to the automation pipeline |
 | `entrypoints/upload-main.content.ts` | Main-world file upload bridge (bypasses CSP for paste events) |
 | `entrypoints/popup/` | Trigger UI: idle → running → success/error state machine |
+| `entrypoints/options/` | Bridge settings: proxy URL, enable switch, client status |
 | `entrypoints/history/` | Full-page conversation history view |
+| `utils/long-poll-client.ts` | Background poll loop: fetch jobs, dispatch, post results, backoff |
+| `utils/long-poll-config.ts` | Long-poll settings, URL validation, and runtime status |
 | `utils/tab-manager.ts` | Find-or-create the provider tab; code-side URL matching |
 | `utils/file-attachment.ts` | Strategy-based attachment: paste bridge, file input, drop zone |
 | `utils/prompt.ts` | contenteditable fill (XSS-safe) + submit (send button / Enter fallback) |
