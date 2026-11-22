@@ -92,11 +92,16 @@ export async function ensureTab(
   }
 
   const targetUrl = provider.urlPatterns[0].replace('/*', '');
-  const created = await browser.tabs.create({ url: targetUrl, active: true });
+  const created = await browser.tabs.create({ url: targetUrl, active: false });
   if (typeof created.id !== 'number') {
     throw new AutomationErrorException('NO_TAB', `Could not create a ${provider.name} tab`);
   }
-  await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
+  try {
+    await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
+  } catch (error) {
+    await browser.tabs.remove(created.id).catch(() => undefined);
+    throw error;
+  }
   return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: true };
 }
 
@@ -129,19 +134,27 @@ export async function resolveTargetTab(
   }
 
   if (targetUrl !== undefined) {
+    if (!provider.isProviderUrl(targetUrl)) {
+      throw new AutomationErrorException('NO_TAB', `Target URL is not a ${provider.name} conversation: ${targetUrl}`);
+    }
     // Try to find an already-open tab at this exact URL.
     const allTabs = await browser.tabs.query({});
     const matching = allTabs.find((t) => t.url === targetUrl && typeof t.id === 'number');
     if (matching && typeof matching.id === 'number') {
       return { tabId: matching.id, url: matching.url ?? targetUrl, created: false, shouldCloseAfter: false };
     }
-    // No matching open tab — create one and wait for it to load.
-    const created = await browser.tabs.create({ url: targetUrl, active: true });
+    // No matching open tab — create one in the background and wait for it.
+    const created = await browser.tabs.create({ url: targetUrl, active: false });
     if (typeof created.id !== 'number') {
       throw new AutomationErrorException('NO_TAB', `Could not create a tab at ${targetUrl}`);
     }
-    await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
-    return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: false };
+    try {
+      await waitForTabComplete(browser, created.id, options.loadTimeoutMs ?? 30_000);
+    } catch (error) {
+      await browser.tabs.remove(created.id).catch(() => undefined);
+      throw error;
+    }
+    return { tabId: created.id, url: targetUrl, created: true, shouldCloseAfter: true };
   }
 
   // No target — reuse existing tab or create a new background tab.

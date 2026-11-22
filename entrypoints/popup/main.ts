@@ -45,8 +45,8 @@ const transport: PopupTransport = {
   setSelectedProvider: async (id: LlmProviderId): Promise<void> => {
     await browser.storage.local.set({ [PROVIDER_STORAGE_KEY]: id });
   },
-  getLongPollStatus: () => getLongPollStatus(),
-  watchLongPollStatus: (listener) => watchLongPollStatus(listener),
+  getStatus: () => getLongPollStatus(),
+  watchStatus: (listener) => watchLongPollStatus(listener),
   getLastResult: async (): Promise<AutomationRunResponse | undefined> => {
     const result = await browser.storage.session.get(LAST_RESULT_KEY);
     const stored = result[LAST_RESULT_KEY];

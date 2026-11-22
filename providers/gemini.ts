@@ -75,10 +75,18 @@ export const geminiProvider: LlmProvider = {
     if (!url) return false;
     try {
       const parsed = new URL(url);
+      const path = parsed.pathname;
+      const isGeminiPath =
+        path === '/app' ||
+        path.startsWith('/app/') ||
+        /^\/u\/\d+\/app(?:\/|$)/.test(path);
       return (
         parsed.protocol === 'https:' &&
         parsed.hostname === 'gemini.google.com' &&
-        (parsed.pathname === '/app' || parsed.pathname.startsWith('/app/'))
+        parsed.port === '' &&
+        !parsed.username &&
+        !parsed.password &&
+        isGeminiPath
       );
     } catch {
       return false;

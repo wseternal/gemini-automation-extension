@@ -40,6 +40,18 @@ body {
 }
 
 /* Long-poll client status dot — custom tooltip on hover */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .poll-status {
   display: inline-flex;
   align-items: center;
@@ -59,6 +71,11 @@ body {
 
 .poll-status-ok .poll-dot {
   background: #188038;
+}
+
+.poll-status-connecting .poll-dot,
+.poll-status-degraded .poll-dot {
+  background: #f9ab00;
 }
 
 .poll-status-error .poll-dot {
@@ -100,6 +117,10 @@ body {
 @media (prefers-color-scheme: dark) {
   .poll-status-ok .poll-dot {
     background: #81c995;
+  }
+  .poll-status-connecting .poll-dot,
+  .poll-status-degraded .poll-dot {
+    background: #fdd663;
   }
   .poll-status-error .poll-dot {
     background: #f28b82;

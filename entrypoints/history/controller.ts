@@ -36,6 +36,7 @@ const TEMPLATE = `
       <div class="detail-meta">
         <span id="gh-detail-status" class="status-badge"></span>
         <span id="gh-detail-time" class="detail-time"></span>
+        <span id="gh-detail-source" class="detail-source muted" hidden></span>
       </div>
       <a id="gh-detail-url" class="conversation-link" hidden target="_blank" rel="noopener">Open in Gemini</a>
       <div class="detail-section-header">
@@ -98,6 +99,9 @@ export class HistoryController {
   private get detailTime(): HTMLElement {
     return this.qs('#gh-detail-time');
   }
+  private get detailSource(): HTMLElement {
+    return this.qs('#gh-detail-source');
+  }
   private get detailUrl(): HTMLAnchorElement {
     return this.qs('#gh-detail-url');
   }
@@ -158,12 +162,19 @@ export class HistoryController {
             ? entry.responseText.slice(0, 80) + '…'
             : entry.responseText
           : `[${entry.errorCode ?? 'ERROR'}] ${entry.errorMessage ?? 'Unknown error'}`;
+      const sourceLabel =
+        entry.source === 'proxy'
+          ? `via proxy${entry.remoteJobId ? ` · ${entry.remoteJobId}` : ''}`
+          : entry.source === 'popup'
+            ? 'via popup'
+            : '';
 
       li.innerHTML =
         `<span class="history-status ${statusClass}">${statusIcon}</span>` +
         `<div class="history-content">` +
         `<div class="history-preview">${escapeHtml(preview)}</div>` +
         `<div class="history-response-preview">${escapeHtml(responsePreview)}</div>` +
+        (sourceLabel ? `<div class="history-source">${escapeHtml(sourceLabel)}</div>` : '') +
         `</div>` +
         `<span class="history-time">${timeLabel}</span>` +
         `<button type="button" class="history-delete" title="Delete" aria-label="Delete entry">&times;</button>`;
@@ -213,6 +224,17 @@ export class HistoryController {
 
     // Timestamp
     this.detailTime.textContent = new Date(entry.timestamp).toLocaleString();
+
+    // Provenance: proxy jobs are otherwise indistinguishable from popup runs.
+    if (entry.source === 'proxy') {
+      this.detailSource.textContent = `via proxy${entry.remoteJobId ? ` · job ${entry.remoteJobId}` : ''}`;
+      this.detailSource.hidden = false;
+    } else if (entry.source === 'popup') {
+      this.detailSource.textContent = 'via popup';
+      this.detailSource.hidden = false;
+    } else {
+      this.detailSource.hidden = true;
+    }
 
     // Conversation URL link
     if (entry.conversationUrl) {

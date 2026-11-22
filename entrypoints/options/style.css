@@ -100,7 +100,8 @@ body {
   cursor: pointer;
 }
 
-input[type='text'] {
+input[type='text'],
+input[type='password'] {
   display: block;
   width: 100%;
   box-sizing: border-box;
@@ -115,12 +116,14 @@ input[type='text'] {
 }
 
 @media (prefers-color-scheme: dark) {
-  input[type='text'] {
+  input[type='text'],
+  input[type='password'] {
     border-color: #3c4043;
   }
 }
 
-input[type='text']:focus-visible {
+input[type='text']:focus-visible,
+input[type='password']:focus-visible {
   outline: 2px solid #0b57d0;
   outline-offset: 1px;
 }
@@ -171,6 +174,11 @@ button.primary {
   color: #fff;
 }
 
+button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
 button.primary:disabled {
   opacity: 0.55;
   cursor: progress;
@@ -208,6 +216,11 @@ button.primary:disabled {
   background: #80868b;
 }
 
+.status-dot.status-dot-connecting,
+.status-dot.status-dot-degraded {
+  background: #f9ab00;
+}
+
 .status-dot.status-dot-error {
   background: #b3261e;
 }
@@ -215,6 +228,10 @@ button.primary:disabled {
 @media (prefers-color-scheme: dark) {
   .status-dot.status-dot-ok {
     background: #81c995;
+  }
+  .status-dot.status-dot-connecting,
+  .status-dot.status-dot-degraded {
+    background: #fdd663;
   }
   .status-dot.status-dot-error {
     background: #f28b82;

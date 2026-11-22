@@ -3,6 +3,7 @@
  * controller to extension storage.
  */
 import {
+  clearLongPollPendingAcks,
   getLongPollStatus,
   loadLongPollConfig,
   saveLongPollConfig,
@@ -15,6 +16,7 @@ const transport: SettingsTransport = {
   saveConfig: saveLongPollConfig,
   getStatus: getLongPollStatus,
   watchStatus: watchLongPollStatus,
+  clearPendingAcks: clearLongPollPendingAcks,
 };
 
 document.addEventListener('DOMContentLoaded', () => {

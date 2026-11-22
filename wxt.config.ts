@@ -11,6 +11,7 @@ const BUILD_TIME = new Date().toISOString().replace('T', ' ').replace(/:\d{2}\.\
 //   - tabs:      locate / create the LLM provider tab
 //   - activeTab: interact with the active LLM tab when the user invokes the action
 //   - storage:   hand off the latest automation result via storage.session
+//   - alarms:    revive the long-poll loop after MV3 service-worker suspension
 //   - host:      LLM provider URLs + local proxy server for long-polling
 export default defineConfig({
   vite: () => ({
@@ -31,7 +32,7 @@ export default defineConfig({
     short_name: 'LLMBridge',
     description:
       'Runs unattended LLM automation (file + prompt) inside your existing authenticated session and returns the response. Supports Gemini and DeepSeek.',
-    permissions: ['tabs', 'activeTab', 'storage'],
+    permissions: ['tabs', 'activeTab', 'storage', 'alarms'],
     host_permissions: [
       'https://gemini.google.com/*',
       'https://chat.deepseek.com/*',

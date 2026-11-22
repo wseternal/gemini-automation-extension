@@ -12,20 +12,42 @@ export interface PromptOptions extends WaitOptions {
   readonly kickoffTimeoutMs?: number;
 }
 
-/** Budget for the Send button to appear and enable after a programmatic fill. */
+/** Budget for the Send button to appear after a programmatic fill. */
 const SEND_BUTTON_TIMEOUT_MS = 2_000;
+/** Short grace for a button that is present but still disabled. */
+const SEND_BUTTON_ENABLE_GRACE_MS = 250;
+
+interface SendButtonInspection {
+  readonly element: HTMLElement | null;
+  /** True when the selector matched, even if the control is disabled/hidden. */
+  readonly present: boolean;
+}
 
 /**
  * Notify editors that track keyboard activity. Gemini's composer shows and
  * enables its Send button from key events only. `execCommand` and DOM writes
  * fire `input` events, which Gemini ignores.
  */
-function reportKeyboardActivity(editor: HTMLElement): void {
-  for (const type of ['keydown', 'keyup'] as const) {
-    editor.dispatchEvent(
-      new KeyboardEvent(type, { bubbles: true, cancelable: true, key: 'a', code: 'KeyA', keyCode: 65 }),
-    );
+function dispatchKeyboardEvent(
+  editor: HTMLElement,
+  type: 'keydown' | 'keyup' | 'keypress',
+  key: string,
+  code: string,
+  keyCode: number,
+): void {
+  const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, key, code });
+  // KeyboardEventInit no longer carries keyCode; legacy handlers still read it.
+  try {
+    Object.defineProperty(event, 'keyCode', { value: keyCode, configurable: true });
+  } catch {
+    // A locked-down event object simply falls back to key/code.
   }
+  editor.dispatchEvent(event);
+}
+
+function reportKeyboardActivity(editor: HTMLElement): void {
+  dispatchKeyboardEvent(editor, 'keydown', 'a', 'KeyA', 65);
+  dispatchKeyboardEvent(editor, 'keyup', 'a', 'KeyA', 65);
 }
 
 function toPromptError(code: 'PROMPT_NOT_FOUND' | 'SUBMIT_FAILED', e: unknown, step: 'fill-prompt' | 'submit'): AutomationErrorException {
@@ -88,12 +110,24 @@ export async function fillPrompt(
 }
 
 /** Return a send button that is present, enabled, and rendered. */
-function findEnabledSendButton(root: ParentNode, selectors: ProviderSelectors): HTMLElement | null {
+function inspectSendButton(root: ParentNode, selectors: ProviderSelectors): SendButtonInspection {
   const el = queryFirst(root, selectors.sendButton);
-  if (!(el instanceof HTMLElement)) return null;
-  if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return null;
-  if (el.getClientRects().length === 0) return null;
-  return el;
+  if (!(el instanceof HTMLElement)) return { element: null, present: false };
+  if (isDisabledSendButton(el, selectors)) return { element: null, present: true };
+  if (el.getClientRects().length === 0) return { element: null, present: true };
+  return { element: el, present: true };
+}
+
+function isDisabledSendButton(el: HTMLElement, selectors: ProviderSelectors): boolean {
+  if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return true;
+  for (const selector of selectors.sendButtonDisabled ?? []) {
+    try {
+      if (el.matches(selector)) return true;
+    } catch {
+      // Ignore a provider selector the current engine cannot parse.
+    }
+  }
+  return false;
 }
 
 /**
@@ -106,17 +140,39 @@ export async function submitPrompt(
   selectors: ProviderSelectors,
   options: PromptOptions = {},
 ): Promise<void> {
-  // The Send button can appear one tick after the fill, when the editor's
-  // framework state updates. Wait for it before falling back to Enter.
-  let sendButton: HTMLElement | null = null;
+  // Wait up to 2s for a send button to exist at all. If one exists but is
+  // disabled, only allow a 250ms enable grace before falling back to Enter.
+  let inspection: SendButtonInspection;
   try {
-    sendButton = await waitForCondition(
-      () => findEnabledSendButton(root, selectors),
+    inspection = await waitForCondition(
+      () => {
+        const candidate = inspectSendButton(root, selectors);
+        return candidate.present ? candidate : null;
+      },
       'send button',
       { timeoutMs: SEND_BUTTON_TIMEOUT_MS, intervalMs: options.intervalMs ?? 50 },
     );
-  } catch {
-    sendButton = null;
+  } catch (error) {
+    if (!(error instanceof WaitTimeoutError)) {
+      throw toPromptError('SUBMIT_FAILED', error, 'submit');
+    }
+    inspection = { element: null, present: false };
+  }
+
+  let sendButton = inspection.element;
+  if (inspection.present && !sendButton) {
+    try {
+      sendButton = await waitForCondition(
+        () => inspectSendButton(root, selectors).element,
+        'enabled send button',
+        { timeoutMs: SEND_BUTTON_ENABLE_GRACE_MS, intervalMs: options.intervalMs ?? 50 },
+      );
+    } catch (error) {
+      if (!(error instanceof WaitTimeoutError)) {
+        throw toPromptError('SUBMIT_FAILED', error, 'submit');
+      }
+      sendButton = null;
+    }
   }
 
   if (sendButton) {
@@ -129,11 +185,12 @@ export async function submitPrompt(
     } catch (e) {
       throw toPromptError('SUBMIT_FAILED', e, 'submit');
     }
-    for (const type of ['keydown', 'keypress', 'keyup'] as const) {
-      editor.dispatchEvent(
-        new KeyboardEvent(type, { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13 }),
-      );
+    if (!(editor instanceof HTMLElement)) {
+      throw new AutomationErrorException('SUBMIT_FAILED', 'prompt editor is not an HTML element', 'submit');
     }
+    dispatchKeyboardEvent(editor, 'keydown', 'Enter', 'Enter', 13);
+    dispatchKeyboardEvent(editor, 'keypress', 'Enter', 'Enter', 13);
+    dispatchKeyboardEvent(editor, 'keyup', 'Enter', 'Enter', 13);
   }
 
   // Confirm generation actually kicked off: a stop-generation indicator or
