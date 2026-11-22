@@ -16,6 +16,13 @@ export interface PromptOptions extends WaitOptions {
 const SEND_BUTTON_TIMEOUT_MS = 2_000;
 
 /**
+ * Grace after a Send-button click to see a kickoff. A backgrounded composer can
+ * swallow the synthetic click, so if nothing starts within this window the
+ * Enter-key path is retried before we give up.
+ */
+const CLICK_KICKOFF_GRACE_MS = 2_500;
+
+/**
  * Notify editors that track keyboard activity. Gemini's composer shows and
  * enables its Send button from key events only. `execCommand` and DOM writes
  * fire `input` events, which Gemini ignores.
@@ -128,10 +135,45 @@ function findEnabledSendButton(root: ParentNode, selectors: ProviderSelectors): 
   return el;
 }
 
+/** Resolve the prompt editor as an HTML element, or throw a submit error. */
+async function getPromptEditor(
+  root: ParentNode,
+  selectors: ProviderSelectors,
+  options: PromptOptions,
+): Promise<HTMLElement> {
+  let editor: Element;
+  try {
+    editor = await waitForElement(root, selectors.promptEditor, 'prompt editor', options);
+  } catch (e) {
+    throw toPromptError('SUBMIT_FAILED', e, 'submit');
+  }
+  if (!(editor instanceof HTMLElement)) {
+    throw new AutomationErrorException('SUBMIT_FAILED', 'prompt editor is not an HTML element', 'submit');
+  }
+  return editor;
+}
+
+/** Dispatch a synthetic Enter that submits the editor on its key handler. */
+function dispatchEnter(editor: HTMLElement): void {
+  dispatchKeyboardEvent(editor, 'keydown', 'Enter', 'Enter', 13);
+  dispatchKeyboardEvent(editor, 'keypress', 'Enter', 'Enter', 13);
+  dispatchKeyboardEvent(editor, 'keyup', 'Enter', 'Enter', 13);
+}
+
+/** True once a stop indicator or response container shows generation started. */
+function kickoffPresent(root: ParentNode, selectors: ProviderSelectors): boolean {
+  return (
+    queryFirst(root, selectors.stopButton) !== null ||
+    queryFirst(root, selectors.responseContainer) !== null
+  );
+}
+
 /**
- * Dispatch the submission event: send-button click when present, Enter-key
- * fallback otherwise. Resolves once generation shows signs of starting
- * (stop indicator or response container); throws `SUBMIT_FAILED` otherwise.
+ * Dispatch the submission event: send-button click when present, with an
+ * Enter-key retry if the click does not start generation; Enter is the only
+ * path when no usable button appears. Resolves once generation shows signs of
+ * starting (stop indicator or response container); throws `SUBMIT_FAILED`
+ * otherwise.
  */
 export async function submitPrompt(
   root: ParentNode,
@@ -157,30 +199,31 @@ export async function submitPrompt(
 
   if (sendButton) {
     sendButton.click();
-  } else {
-    // Enter fallback on the editor.
-    let editor: Element | null;
+    // A backgrounded composer can swallow the synthetic click. Give it a short
+    // grace to kick off; if nothing starts, retry through the Enter path.
     try {
-      editor = await waitForElement(root, selectors.promptEditor, 'prompt editor', options);
-    } catch (e) {
-      throw toPromptError('SUBMIT_FAILED', e, 'submit');
+      await waitForCondition(
+        () => kickoffPresent(root, selectors),
+        'generation kickoff',
+        { timeoutMs: CLICK_KICKOFF_GRACE_MS, intervalMs: options.intervalMs ?? 100 },
+      );
+      return;
+    } catch (error) {
+      if (!(error instanceof WaitTimeoutError)) {
+        throw toPromptError('SUBMIT_FAILED', error, 'submit');
+      }
     }
-    if (!(editor instanceof HTMLElement)) {
-      throw new AutomationErrorException('SUBMIT_FAILED', 'prompt editor is not an HTML element', 'submit');
-    }
-    dispatchKeyboardEvent(editor, 'keydown', 'Enter', 'Enter', 13);
-    dispatchKeyboardEvent(editor, 'keypress', 'Enter', 'Enter', 13);
-    dispatchKeyboardEvent(editor, 'keyup', 'Enter', 'Enter', 13);
+    dispatchEnter(await getPromptEditor(root, selectors, options));
+  } else {
+    // No usable button: submit through the editor's Enter handler.
+    dispatchEnter(await getPromptEditor(root, selectors, options));
   }
 
   // Confirm generation actually kicked off: a stop-generation indicator or
   // a response container must appear.
   try {
     await waitForCondition(
-      () =>
-        queryFirst(root, selectors.stopButton) !== null ||
-        queryFirst(root, selectors.responseContainer) !== null ||
-        null,
+      () => kickoffPresent(root, selectors),
       'generation kickoff',
       { timeoutMs: options.kickoffTimeoutMs ?? 8_000, intervalMs: options.intervalMs ?? 100 },
     );
