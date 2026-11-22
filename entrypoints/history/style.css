@@ -451,3 +451,11 @@ button:focus-visible {
 .error-text {
   color: #b3261e;
 }
+
+.history-source,
+.detail-source {
+  font-size: 11px;
+  color: #80868b;
+  margin-top: 3px;
+  word-break: break-word;
+}

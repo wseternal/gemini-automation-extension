@@ -1,0 +1,245 @@
+/* entrypoints/options/style.css — full-page bridge settings view. */
+:root {
+  color-scheme: light dark;
+  font-family: 'Google Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: #1f1f1f;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1e1f20;
+    color: #e3e3e3;
+  }
+}
+
+#app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 20px;
+}
+
+.page-header {
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .page-header {
+    border-bottom-color: #3c4043;
+  }
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.build-info {
+  font-size: 11px;
+  color: #80868b;
+  margin: 4px 0 0;
+  font-family: 'SF Mono', 'Roboto Mono', 'Menlo', monospace;
+  letter-spacing: -0.2px;
+}
+
+.card {
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .card {
+    border-color: #3c4043;
+    background: #28292a;
+  }
+}
+
+.subtitle {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.muted {
+  color: #80868b;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+
+.label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 16px 0 6px;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin-top: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.switch-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0b57d0;
+  cursor: pointer;
+}
+
+input[type='text'],
+input[type='password'] {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #c4c7c5;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 14px;
+  background: transparent;
+  color: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type='text'],
+  input[type='password'] {
+    border-color: #3c4043;
+  }
+}
+
+input[type='text']:focus-visible,
+input[type='password']:focus-visible {
+  outline: 2px solid #0b57d0;
+  outline-offset: 1px;
+}
+
+input[type='text'][aria-invalid='true'] {
+  border-color: #b3261e;
+}
+
+input[type='text']::placeholder {
+  color: #80868b;
+}
+
+.hint {
+  font-size: 12px;
+  color: #80868b;
+  margin: 6px 0 0;
+}
+
+.field-error {
+  color: #b3261e;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 6px 0 0;
+}
+
+button {
+  min-height: 40px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid #c4c7c5;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+button.primary {
+  margin-top: 18px;
+  min-width: 120px;
+  background: #0b57d0;
+  border-color: #0b57d0;
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+button.primary:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.save-note {
+  color: #188038;
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+  word-break: break-word;
+}
+
+.status-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #80868b;
+}
+
+.status-dot.status-dot-ok {
+  background: #188038;
+}
+
+.status-dot.status-dot-idle {
+  background: #80868b;
+}
+
+.status-dot.status-dot-connecting,
+.status-dot.status-dot-degraded {
+  background: #f9ab00;
+}
+
+.status-dot.status-dot-error {
+  background: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .status-dot.status-dot-ok {
+    background: #81c995;
+  }
+  .status-dot.status-dot-connecting,
+  .status-dot.status-dot-degraded {
+    background: #fdd663;
+  }
+  .status-dot.status-dot-error {
+    background: #f28b82;
+  }
+  .field-error {
+    color: #f28b82;
+  }
+  .save-note {
+    color: #81c995;
+  }
+}

@@ -13,6 +13,11 @@ const SELECTORS: ProviderSelectors = {
     '.ds-button--primary.ds-button--filled.ds-button--circle',
     'div[role="button"].ds-button--primary',
   ],
+  sendButtonDisabled: [
+    '.ds-button--disabled',
+    '[aria-disabled="true"]',
+    '[disabled]',
+  ],
   /**
    * DeepSeek uses the SAME button for send and stop — the SVG icon changes.
    * Send: path starts with "M8.3125" (arrow icon)
@@ -64,10 +69,18 @@ export const deepseekProvider: LlmProvider = {
     if (!url) return false;
     try {
       const parsed = new URL(url);
+      const path = parsed.pathname;
       return (
         parsed.protocol === 'https:' &&
-        (parsed.hostname === 'chat.deepseek.com' || parsed.hostname === 'www.deepseek.com') &&
-        (parsed.pathname === '/' || parsed.pathname.startsWith('/chat'))
+        parsed.hostname === 'chat.deepseek.com' &&
+        parsed.port === '' &&
+        !parsed.username &&
+        !parsed.password &&
+        (path === '/' ||
+          path === '/chat' ||
+          path.startsWith('/chat/') ||
+          path === '/a/chat' ||
+          path.startsWith('/a/chat/'))
       );
     } catch {
       return false;

@@ -17,12 +17,21 @@ import {
   type TabInfo,
 } from '../../types/automation';
 import type { LlmProviderId } from '../../types/provider';
+import type {
+  LongPollStatus,
+  LongPollStatusTransport,
+} from '../../utils/long-poll-protocol';
+import { LONG_POLL_STATUS_STALE_AFTER_MS } from '../../utils/long-poll-protocol';
 
 export type PopupPhase = 'idle' | 'running' | 'success' | 'error';
 
-export interface PopupTransport {
+/** Delay before the status tooltip appears after the pointer enters the dot. */
+const TOOLTIP_DELAY_MS = 200;
+
+export interface PopupTransport extends LongPollStatusTransport {
   run(request: AutomationRunRequest): Promise<AutomationRunResponse>;
   openHistory(): void;
+  openSettings(): void;
   listTabs(): Promise<{ tabs: TabInfo[]; conversations: ConversationInfo[] }>;
   getSelectedProvider(): Promise<LlmProviderId>;
   setSelectedProvider(id: LlmProviderId): Promise<void>;
@@ -31,7 +40,18 @@ export interface PopupTransport {
 }
 
 const TEMPLATE = `
-  <h1 class="title">LLM Automation Bridge</h1>
+  <div class="title-row">
+    <h1 class="title">LLM Automation Bridge</h1>
+    <span
+      id="ga-poll-status"
+      class="poll-status poll-status-unknown"
+      role="img"
+      aria-label="Long-polling status is unknown"
+    >
+      <span class="poll-dot" aria-hidden="true"></span>
+    </span>
+    <span id="ga-poll-status-live" class="visually-hidden" role="status" aria-live="polite"></span>
+  </div>
   <p id="ga-build-info" class="build-info"></p>
   <form id="ga-form" novalidate>
     <label class="label" for="ga-provider">Provider</label>
@@ -55,7 +75,10 @@ const TEMPLATE = `
 
     <button id="ga-run" type="submit" class="primary">Run</button>
   </form>
-  <button id="ga-history-link" type="button" class="link-button">History</button>
+  <div id="ga-links" class="link-row">
+    <button id="ga-history-link" type="button" class="link-button">History</button>
+    <button id="ga-settings-link" type="button" class="link-button">Bridge settings</button>
+  </div>
 
   <section id="ga-status" role="status" aria-live="polite" hidden>
     <span class="spinner" aria-hidden="true"></span>
@@ -78,11 +101,25 @@ const TEMPLATE = `
       <button id="ga-retry" type="button">Retry</button>
     </div>
   </section>
+
+  <div id="ga-tooltip" class="tooltip" role="tooltip" hidden></div>
 `;
 
 export class PopupController {
   private phase: PopupPhase = 'idle';
   private lastError = '';
+  /** Timestamp of the last rendered long-poll status — blocks stale reads. */
+  private lastPollStatusAt = -1;
+  /** Tooltip text for the current long-poll status. */
+  private pollStatusText = 'Long-polling status is unknown. Open Bridge settings.';
+  private tooltipTimer: ReturnType<typeof setTimeout> | undefined;
+  private unwatchPollStatus: (() => void) | undefined;
+
+  private readonly onPageHide = (): void => {
+    this.unwatchPollStatus?.();
+    this.unwatchPollStatus = undefined;
+    this.clearTooltipTimer();
+  };
 
   constructor(
     private readonly root: HTMLElement,
@@ -101,7 +138,20 @@ export class PopupController {
     this.copyButton.addEventListener('click', () => void this.copyResult());
     this.fileInput.addEventListener('change', () => this.renderFileMeta());
     this.historyLink.addEventListener('click', () => this.openHistoryPage());
+    this.settingsLink.addEventListener('click', () => this.transport.openSettings());
     this.providerSelect.addEventListener('change', () => void this.onProviderChange());
+    this.renderPollStatus(undefined);
+    this.pollStatus.addEventListener('mouseenter', () => {
+      this.clearTooltipTimer();
+      this.tooltipTimer = setTimeout(() => this.showPollTooltip(), TOOLTIP_DELAY_MS);
+    });
+    this.pollStatus.addEventListener('mouseleave', () => this.hidePollTooltip());
+    this.unwatchPollStatus = this.transport.watchStatus((status) => this.renderPollStatus(status));
+    window.addEventListener('pagehide', this.onPageHide);
+    void this.transport
+      .getStatus()
+      .then((status) => this.renderPollStatus(status))
+      .catch(() => this.renderPollStatus(undefined));
     this.setPhase('idle');
     void this.loadProvider();
   }
@@ -163,6 +213,21 @@ export class PopupController {
   private get historyLink(): HTMLButtonElement {
     return this.qs('#ga-history-link');
   }
+  private get settingsLink(): HTMLButtonElement {
+    return this.qs('#ga-settings-link');
+  }
+  private get linksRow(): HTMLElement {
+    return this.qs('#ga-links');
+  }
+  private get pollStatus(): HTMLElement {
+    return this.qs('#ga-poll-status');
+  }
+  private get pollStatusLive(): HTMLElement {
+    return this.qs('#ga-poll-status-live');
+  }
+  private get tooltip(): HTMLElement {
+    return this.qs('#ga-tooltip');
+  }
 
   getPhase(): PopupPhase {
     return this.phase;
@@ -176,7 +241,7 @@ export class PopupController {
 
     const showForm = phase === 'idle' || phase === 'running' || phase === 'success' || phase === 'error';
     this.root.querySelector<HTMLElement>('#ga-form')!.hidden = !showForm;
-    this.historyLink.hidden = !showForm;
+    this.linksRow.hidden = !showForm;
 
     this.form.classList.toggle('dimmed', phase === 'running');
     this.runButton.disabled = phase === 'running';
@@ -189,6 +254,112 @@ export class PopupController {
   private renderFileMeta(): void {
     const file = this.fileInput.files?.[0];
     this.fileMeta.textContent = file ? `${file.name} — ${file.size.toLocaleString()} bytes` : '';
+  }
+
+  /**
+   * Show the long-poll client state as a dot next to the title.
+   * The dot carries a custom hover tooltip and an accessible label.
+   */
+  private renderPollStatus(status: LongPollStatus | undefined): void {
+    if (!status) {
+      this.lastPollStatusAt = 0;
+      this.pollStatusText = 'Long-polling status is unknown. Open Bridge settings.';
+      this.applyPollStatus('poll-status-unknown', this.pollStatusText);
+      return;
+    }
+    if (status.updatedAt < this.lastPollStatusAt) return;
+    this.lastPollStatusAt = status.updatedAt;
+
+    let variant: string;
+    let tooltip: string;
+
+    if (status.state !== 'disabled' && Date.now() - status.updatedAt > LONG_POLL_STATUS_STALE_AFTER_MS) {
+      variant = 'poll-status-unknown';
+      tooltip = 'Long-polling status is stale. The background worker may be suspended.';
+    } else if (status.state === 'disabled') {
+      variant = 'poll-status-idle';
+      tooltip = 'Long-polling is off.';
+    } else if (status.state === 'connecting') {
+      variant = 'poll-status-connecting';
+      tooltip = `Long-polling is connecting${status.proxyUrl ? ` to ${status.proxyUrl}` : ''}.`;
+    } else if (status.state === 'degraded') {
+      variant = 'poll-status-degraded';
+      const failures = status.ackFailures ? ` (${status.ackFailures} unacknowledged)` : '';
+      tooltip = `Long-polling is active, but result delivery failed: ${status.lastAckError ?? status.message ?? 'unknown error'}${failures}.`;
+    } else if (status.state === 'error') {
+      variant = 'poll-status-error';
+      const label =
+        status.errorKind === 'config'
+          ? 'settings'
+          : status.errorKind === 'protocol'
+            ? 'protocol'
+            : 'connection';
+      const failures = status.failureCount ? ` (${status.failureCount} consecutive)` : '';
+      tooltip = `Long-polling ${label} error${failures}: ${(status.message ?? 'unknown error').replace(/\.$/, '')}.`;
+    } else {
+      variant = 'poll-status-ok';
+      tooltip = status.proxyUrl
+        ? `Long-polling is active at ${status.proxyUrl}.`
+        : 'Long-polling is active.';
+    }
+
+    const pending = status.pendingAcks ?? [];
+    if (pending.length > 0) {
+      const first = pending[0];
+      tooltip +=
+        ` ${pending.length} result${pending.length === 1 ? '' : 's'} record${pending.length === 1 ? '' : 's'} pending locally` +
+        ` (job ${first.jobId}, last attempt ${new Date(first.lastAttemptAt).toLocaleTimeString()}): ${first.error}.`;
+    }
+    if (status.lastAckAt !== undefined) {
+      tooltip += ` Last result acknowledged at ${new Date(status.lastAckAt).toLocaleTimeString()}.`;
+    }
+    tooltip += ` Last report at ${new Date(status.updatedAt).toLocaleTimeString()}.`;
+
+    this.applyPollStatus(variant, tooltip);
+  }
+
+  private applyPollStatus(variant: string, tooltip: string): void {
+    this.pollStatusText = tooltip;
+    const el = this.pollStatus;
+    el.className = `poll-status ${variant}`;
+    el.setAttribute('aria-label', tooltip);
+    // Do not re-announce a heartbeat-only timestamp change. The live text
+    // omits the report time but keeps state, errors, and pending job details.
+    const announcement = tooltip.split(' Last report at ')[0];
+    if (this.pollStatusLive.textContent !== announcement) this.pollStatusLive.textContent = announcement;
+    if (!this.tooltip.hidden) this.showPollTooltip();
+  }
+
+  /** Show the status tooltip near the dot, clamped to the popup viewport. */
+  private showPollTooltip(): void {
+    this.clearTooltipTimer();
+
+    const tip = this.tooltip;
+    tip.textContent = this.pollStatusText;
+    tip.hidden = false;
+
+    const anchor = this.pollStatus.getBoundingClientRect();
+    const rect = tip.getBoundingClientRect();
+    const margin = 8;
+    let left = anchor.left + anchor.width / 2 - rect.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+    let top = anchor.bottom + 6;
+    if (top + rect.height > window.innerHeight - margin) {
+      top = anchor.top - rect.height - 6;
+    }
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+  }
+
+  private hidePollTooltip(): void {
+    this.clearTooltipTimer();
+    this.tooltip.hidden = true;
+  }
+
+  private clearTooltipTimer(): void {
+    if (this.tooltipTimer === undefined) return;
+    clearTimeout(this.tooltipTimer);
+    this.tooltipTimer = undefined;
   }
 
   private async readFilePayload(file: File): Promise<FilePayload> {

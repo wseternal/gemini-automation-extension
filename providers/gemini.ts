@@ -6,7 +6,7 @@ import type { LlmProvider, ProviderSelectors } from '../types/provider';
 const SELECTORS: ProviderSelectors = {
   promptEditor: [
     'div.ql-editor[contenteditable="true"]',
-    'rich-textarea div[contenteditable="true"]',
+    'rich-textarea div.ql-editor[contenteditable="true"]',
     'div[contenteditable="true"][role="textbox"]',
     'div[contenteditable="true"][aria-label]',
     '.initial-input-area-container textarea',
@@ -75,10 +75,18 @@ export const geminiProvider: LlmProvider = {
     if (!url) return false;
     try {
       const parsed = new URL(url);
+      const path = parsed.pathname;
+      const isGeminiPath =
+        path === '/app' ||
+        path.startsWith('/app/') ||
+        /^\/u\/\d+\/app(?:\/|$)/.test(path);
       return (
         parsed.protocol === 'https:' &&
         parsed.hostname === 'gemini.google.com' &&
-        (parsed.pathname === '/app' || parsed.pathname.startsWith('/app/'))
+        parsed.port === '' &&
+        !parsed.username &&
+        !parsed.password &&
+        isGeminiPath
       );
     } catch {
       return false;

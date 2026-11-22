@@ -26,6 +26,8 @@ export interface ProviderSelectors {
   readonly promptEditor: SelectorList;
   /** Send control. */
   readonly sendButton: SelectorList;
+  /** Selectors that mark the send control as disabled (provider-specific). */
+  readonly sendButtonDisabled?: SelectorList;
   /** Stop-generation indicator — present only while the model streams. */
   readonly stopButton: SelectorList;
   /** Hidden file input behind the uploader. */

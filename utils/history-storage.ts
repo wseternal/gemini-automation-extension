@@ -109,7 +109,9 @@ function isHistoryEntryShape(value: unknown): value is HistoryEntry {
     typeof v.responseText === 'string' &&
     (v.conversationUrl === undefined || typeof v.conversationUrl === 'string') &&
     (v.responseMarkdown === undefined || typeof v.responseMarkdown === 'string') &&
-    (v.attachment === undefined || isAttachmentShape(v.attachment))
+    (v.attachment === undefined || isAttachmentShape(v.attachment)) &&
+    (v.source === undefined || v.source === 'popup' || v.source === 'proxy') &&
+    (v.remoteJobId === undefined || typeof v.remoteJobId === 'string')
   );
 }
 

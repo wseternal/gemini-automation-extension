@@ -20,10 +20,11 @@ Project-level rules. These supplement (and never override) the global rules in `
 Only **pure business logic** with no browser or DOM dependency qualifies:
 
 - **Messaging contract validation** — type guards (`isAutomationRunRequest`, `isAutomationRunResponse`), file payload validation, constructor functions (`ok`, `err`).
+- **Long-poll protocol and mapping** — `normalizeProxyUrl`, `coerceLongPollConfig`, `isLongPollStatus`, `parsePollJob`, `mapPollJobToRequest`.
 - **Data transformations** — history storage shape guards, base64 encoding.
 - **Pure string utilities** — `escapeMarkdown`, `cleanOutput` (markdown/whitespace transformations with no I/O).
 
-Test files live in `tests/`. Currently `tests/contract.test.ts` covers the messaging contract, `escapeMarkdown`, and `cleanOutput`.
+Test files live in `tests/`. Currently `tests/contract.test.ts` covers the messaging contract, long-poll protocol (status/pending-ack guards, poll parsing, job mapping, request digests), provider URL predicates, `escapeMarkdown`, and `cleanOutput`.
 
 ### What Must Not Be Tested
 
@@ -40,11 +41,13 @@ Stop and ask the user. Do not look for a workaround (e.g., extracting pure logic
 
 | Directory | Purpose |
 |-----------|---------|
-| `entrypoints/` | WXT entrypoints: `background.ts`, `content.ts`, `upload-main.content.ts`, `popup/`, `history/` |
+| `entrypoints/` | WXT entrypoints: `background.ts`, `content.ts`, `upload-main.content.ts`, `popup/`, `options/`, `history/` |
 | `providers/` | LLM provider implementations (Gemini, DeepSeek) and registry |
-| `utils/` | Shared logic: tab management, DOM interaction, response extraction, history storage |
+| `utils/` | Shared logic: long-poll protocol/validation, tab management, DOM interaction, response extraction, history storage |
 | `types/` | Messaging contract (`automation.ts`) and provider interface (`provider.ts`) |
-| `tests/` | Only `contract.test.ts` (pure validation tests) |
+| `tests/` | Only `contract.test.ts` (pure validation and protocol tests) |
+
+Keep `utils/long-poll-protocol.ts` free of browser imports. Browser storage access belongs in `utils/long-poll-config.ts`; this split lets protocol tests run without mocking the extension runtime.
 
 ## Build & Dev
 
@@ -54,7 +57,7 @@ Stop and ask the user. Do not look for a workaround (e.g., extracting pure logic
 bun run dev        # watch mode — rebuilds on change
 bun run build      # production build to .output/chrome-mv3
 bun run check      # TypeScript type check
-bun run test       # run contract tests only
+bun run test       # run contract/protocol tests only
 ```
 
 ## Commit Conventions

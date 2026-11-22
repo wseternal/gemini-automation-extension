@@ -16,6 +16,8 @@ export const AUTOMATION_RUN_REQUEST = 'llm-automation/run' as const;
 export const AUTOMATION_RUN_RESPONSE = 'llm-automation/result' as const;
 export const TAB_LIST_REQUEST = 'llm-automation/list-tabs' as const;
 export const TAB_LIST_RESPONSE = 'llm-automation/tabs' as const;
+export const LONG_POLL_CLEAR_PENDING_REQUEST = 'llm-automation/clear-long-poll-pending' as const;
+export const LONG_POLL_CLEAR_PENDING_RESPONSE = 'llm-automation/long-poll-pending-cleared' as const;
 
 // ---------------------------------------------------------------------------
 // File payload guardrails (security gate 8)
@@ -103,6 +105,21 @@ export interface TabListResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Long-poll pending-result maintenance (options → background)
+// ---------------------------------------------------------------------------
+
+/** Ask the background to clear all unanswered proxy results for the current proxy. */
+export interface LongPollClearPendingRequest {
+  readonly kind: typeof LONG_POLL_CLEAR_PENDING_REQUEST;
+}
+
+export interface LongPollClearPendingResponse {
+  readonly kind: typeof LONG_POLL_CLEAR_PENDING_RESPONSE;
+  /** Number of pending records removed across client memory and local storage. */
+  readonly cleared: number;
+}
+
+// ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
 
@@ -120,6 +137,7 @@ export type AutomationErrorCode =
   | 'EXTRACTION_FAILED'
   | 'INVALID_PAYLOAD'
   | 'INVALID_PROVIDER'
+  | 'BUSY'
   | 'INTERNAL';
 
 export interface AutomationError {
@@ -226,6 +244,20 @@ export function isTabListRequest(msg: unknown): msg is TabListRequest {
   return isRecord(msg) && msg.kind === TAB_LIST_REQUEST;
 }
 
+export function isLongPollClearPendingRequest(msg: unknown): msg is LongPollClearPendingRequest {
+  return isRecord(msg) && msg.kind === LONG_POLL_CLEAR_PENDING_REQUEST;
+}
+
+export function isLongPollClearPendingResponse(msg: unknown): msg is LongPollClearPendingResponse {
+  return (
+    isRecord(msg) &&
+    msg.kind === LONG_POLL_CLEAR_PENDING_RESPONSE &&
+    typeof msg.cleared === 'number' &&
+    Number.isInteger(msg.cleared) &&
+    msg.cleared >= 0
+  );
+}
+
 const ERROR_CODES: readonly AutomationErrorCode[] = [
   'NO_TAB',
   'TAB_LOAD_TIMEOUT',
@@ -238,6 +270,7 @@ const ERROR_CODES: readonly AutomationErrorCode[] = [
   'EXTRACTION_FAILED',
   'INVALID_PAYLOAD',
   'INVALID_PROVIDER',
+  'BUSY',
   'INTERNAL',
 ];
 
@@ -301,4 +334,8 @@ export interface HistoryEntry {
   readonly attachment?: HistoryAttachmentMeta;
   /** Conversation URL captured after the run. */
   readonly conversationUrl?: string;
+  /** Entry point that started the run. */
+  readonly source?: 'popup' | 'proxy';
+  /** Proxy job id when source is 'proxy'. */
+  readonly remoteJobId?: string;
 }

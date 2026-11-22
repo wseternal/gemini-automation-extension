@@ -12,6 +12,7 @@ import type {
 } from '../../types/automation';
 import { isAutomationRunResponse, TAB_LIST_REQUEST } from '../../types/automation';
 import type { LlmProviderId } from '../../types/provider';
+import { getLongPollStatus, watchLongPollStatus } from '../../utils/long-poll-config';
 import { PopupController, type PopupTransport } from './controller';
 
 const PROVIDER_STORAGE_KEY = 'llm-automation/selected-provider';
@@ -22,6 +23,9 @@ const transport: PopupTransport = {
     browser.runtime.sendMessage(request) as Promise<AutomationRunResponse>,
   openHistory: () => {
     browser.tabs.create({ url: browser.runtime.getURL('/history.html') });
+  },
+  openSettings: () => {
+    void browser.runtime.openOptionsPage();
   },
   listTabs: async (): Promise<{ tabs: TabInfo[]; conversations: ConversationInfo[] }> => {
     const response = (await browser.runtime.sendMessage({
@@ -41,6 +45,8 @@ const transport: PopupTransport = {
   setSelectedProvider: async (id: LlmProviderId): Promise<void> => {
     await browser.storage.local.set({ [PROVIDER_STORAGE_KEY]: id });
   },
+  getStatus: () => getLongPollStatus(),
+  watchStatus: (listener) => watchLongPollStatus(listener),
   getLastResult: async (): Promise<AutomationRunResponse | undefined> => {
     const result = await browser.storage.session.get(LAST_RESULT_KEY);
     const stored = result[LAST_RESULT_KEY];
