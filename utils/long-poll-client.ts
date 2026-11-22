@@ -187,19 +187,24 @@ export function startLongPollClient(
     }
   };
 
+  /** Keep a record the durable layer could not drop, labelled as acknowledged. */
+  const keepCleanupFailedRecord = (jobId: string): void => {
+    pending.set(jobId, {
+      jobId,
+      error: LOCAL_CLEANUP_ERROR,
+      lastAttemptAt: Date.now(),
+    });
+    refreshAckCounters();
+    emitCurrent();
+  };
+
   const markAckSuccess = (outcome: LongPollJobOutcome): void => {
     lastAckAt = Date.now();
     if (outcome.localCleanupFailed) {
       // The proxy has the result; only the local record survived. Keep the
       // in-memory copy so it matches storage, and list it without claiming a
       // delivery failure or an unacknowledged result.
-      pending.set(outcome.jobId, {
-        jobId: outcome.jobId,
-        error: LOCAL_CLEANUP_ERROR,
-        lastAttemptAt: Date.now(),
-      });
-      refreshAckCounters();
-      emitCurrent();
+      keepCleanupFailedRecord(outcome.jobId);
       return;
     }
     pending.delete(outcome.jobId);
@@ -253,13 +258,7 @@ export function startLongPollClient(
       // A terminal 4xx means the proxy has decided this result is invalid or
       // already known. Retrying forever would leave a permanent amber dot.
       if (outcome.localCleanupFailed) {
-        pending.set(outcome.jobId, {
-          jobId: outcome.jobId,
-          error: LOCAL_CLEANUP_ERROR,
-          lastAttemptAt: Date.now(),
-        });
-        refreshAckCounters();
-        emitCurrent();
+        keepCleanupFailedRecord(outcome.jobId);
         return;
       }
       pending.delete(outcome.jobId);
