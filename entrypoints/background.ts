@@ -28,7 +28,7 @@ import {
   type LongPollClearPendingResponse,
   type TabListResponse,
 } from '../types/automation';
-import { getProvider, ALL_PROVIDERS } from '../providers';
+import { getProvider, ALL_PROVIDERS, listProviderIds } from '../providers';
 import type { LlmProviderId } from '../types/provider';
 import { resolveTargetTab, listAllProviderTabs, waitForTabComplete, type BrowserLike } from '../utils/tab-manager';
 import { generateHistoryId, saveHistoryEntry, listHistoryConversations } from '../utils/history-storage';
@@ -309,15 +309,18 @@ function prunePendingAckMap(
   return { map: next, changed };
 }
 
-async function writePendingAckMap(map: LongPollPendingAckMap): Promise<void> {
+/** Persist the map. Returns false when storage rejected the write. */
+async function writePendingAckMap(map: LongPollPendingAckMap): Promise<boolean> {
   try {
     if (Object.keys(map).length === 0) {
       await wxtBrowser.storage.local.remove(LONG_POLL_FAILED_RESULTS_KEY);
     } else {
       await wxtBrowser.storage.local.set({ [LONG_POLL_FAILED_RESULTS_KEY]: map });
     }
+    return true;
   } catch (error) {
     console.warn('[long-poll] pending-ack write failed:', error);
+    return false;
   }
 }
 
@@ -401,17 +404,18 @@ async function persistPendingAckFailure(
   });
 }
 
-/** Remove a pending record only for this proxy's job. */
-async function clearPendingAck(proxyUrl: string, jobId: string): Promise<void> {
+/** Remove a pending record only for this proxy's job. Returns false when the write failed. */
+async function clearPendingAck(proxyUrl: string, jobId: string): Promise<boolean> {
   return enqueuePendingAckWrite(async () => {
     try {
       const map = await readPendingAckMap();
       const key = pendingAckKey(proxyUrl, jobId);
-      if (!(key in map)) return;
+      if (!(key in map)) return true;
       delete map[key];
-      await writePendingAckMap(map);
+      return await writePendingAckMap(map);
     } catch (error) {
       console.warn('[long-poll] pending-ack cleanup failed:', error);
+      return false;
     }
   });
 }
@@ -427,8 +431,8 @@ async function clearPendingAcksForProxy(proxyUrl: string): Promise<number> {
         delete map[key];
         cleared += 1;
       }
-      if (cleared > 0) await writePendingAckMap(map);
-      return cleared;
+      if (cleared === 0) return 0;
+      return (await writePendingAckMap(map)) ? cleared : 0;
     } catch (error) {
       console.warn('[long-poll] pending-ack bulk cleanup failed:', error);
       return 0;
@@ -481,10 +485,16 @@ async function loadPendingAckResult(
 
 /** Write a history row for a request that failed validation before dispatch. */
 async function persistProxyRejection(rejection: LongPollJobRejection): Promise<void> {
+  // Trust only a provider the registry knows; the proxy supplies untrusted input.
+  const rawProvider = rejection.providerId;
+  const providerId: LlmProviderId =
+    rawProvider !== undefined && listProviderIds().some((id) => id === rawProvider)
+      ? (rawProvider as LlmProviderId)
+      : 'gemini';
   const entry: HistoryEntry = {
     id: generateHistoryId(),
     timestamp: Date.now(),
-    providerId: 'gemini',
+    providerId,
     prompt: '(invalid proxy job)',
     status: 'error',
     responseText: '',
@@ -576,10 +586,9 @@ async function applyLongPollConfig(force: boolean): Promise<void> {
       onJobFinished: (outcome) => clearLongPollLease(outcome.jobId),
       onAckFailure: async (outcome) => {
         if (outcome.ackRetryable === false) {
-          await clearPendingAck(config.proxyUrl, outcome.jobId);
-        } else {
-          await persistPendingAckFailure(config.proxyUrl, outcome);
+          return await clearPendingAck(config.proxyUrl, outcome.jobId);
         }
+        await persistPendingAckFailure(config.proxyUrl, outcome);
       },
       onPendingAckExpired: (jobId) => clearPendingAck(config.proxyUrl, jobId),
       onExit: () => {

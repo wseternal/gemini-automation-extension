@@ -34,7 +34,11 @@ export const LONG_POLL_CONFIG_KEY = 'llm-automation/long-poll-config';
 export const LONG_POLL_STATUS_KEY = 'llm-automation/long-poll-status';
 /** In-flight job metadata persisted in storage.session so a suspended worker can reconcile it. */
 export const LONG_POLL_LEASE_KEY = 'llm-automation/long-poll-lease';
-/** Durable map of jobs whose result has not been acknowledged yet. */
+/**
+ * Durable map of jobs whose result has not been acknowledged yet. The name is
+ * historical: records also cover results that were never delivered once, not
+ * just failures.
+ */
 export const LONG_POLL_FAILED_RESULTS_KEY = 'llm-automation/long-poll-failed-results';
 
 /** How soon the status writer may repeat the same unchanged value. */
@@ -343,6 +347,13 @@ export function validationErrorResponse(error: unknown): AutomationRunResponse {
     return err(error.code, error.message, error.step);
   }
   return err('INVALID_PAYLOAD', error instanceof Error ? error.message : String(error));
+}
+
+/** Best-effort provider id for a payload that may still fail validation. */
+export function readRawProviderId(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const raw = value.provider_id;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
 }
 
 function readProviderId(value: unknown): LlmProviderId | undefined {

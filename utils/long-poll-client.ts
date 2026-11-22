@@ -21,6 +21,7 @@ import {
   LongPollProtocolError,
   mapPollJobToRequest,
   parsePollJob,
+  readRawProviderId,
   requestDigest,
   validationErrorResponse,
   type LongPollConfig,
@@ -39,6 +40,10 @@ const MAX_BACKOFF_MS = 30_000;
 const RESULT_POST_TIMEOUT_MS = 8_000;
 const RESULT_RETRY_DELAYS_MS = [500, 1_500] as const;
 const AUTH_HEADER = 'X-Bridge-Token';
+/** Ack error returned when stop() cancels an in-flight result delivery. */
+const STOPPED_DELIVERY_ERROR = 'client stopped before delivery';
+/** Pending-ack error shown when the proxy accepted a result but the local record stayed. */
+const LOCAL_CLEANUP_ERROR = 'result acknowledged; the local pending record could not be cleared';
 
 /** Dispatch function type — provided by background.ts. */
 export type DispatchFn = (
@@ -65,6 +70,8 @@ export interface LongPollJobOutcome {
   /** False when the proxy explicitly rejected the result; true for transport/5xx. */
   readonly ackRetryable?: boolean;
   readonly requestDigest?: string;
+  /** True when a durable pending-record cleanup failed, so the in-memory copy is kept. */
+  readonly localCleanupFailed?: true;
 }
 
 /** A validated result produced before the worker attempts to POST it. */
@@ -79,6 +86,8 @@ export interface LongPollJobRejection {
   readonly jobId: string;
   readonly code: string;
   readonly message: string;
+  /** Raw provider id from the rejected payload, when it carried one. */
+  readonly providerId?: string;
 }
 
 /** Observer hooks. All hooks are optional and failures are isolated. */
@@ -86,12 +95,14 @@ export interface LongPollHooks {
   onStatus?: (status: LongPollClientStatus) => void;
   onJobReceived?: (job: PollJob, digest: string) => void | Promise<void>;
   onResultReady?: (ready: LongPollResultReady) => void | Promise<void>;
-  onResultDelivered?: (jobId: string) => void | Promise<void>;
+  /** Return false when the durable record could not be removed. */
+  onResultDelivered?: (jobId: string) => boolean | void | Promise<boolean | void>;
   onJobRejected?: (rejection: LongPollJobRejection) => void | Promise<void>;
   onJobFinished?: (outcome: LongPollJobOutcome) => void | Promise<void>;
-  onAckFailure?: (outcome: LongPollJobOutcome) => void | Promise<void>;
-  /** Called when a retryable pending result ages out of its reuse window. */
-  onPendingAckExpired?: (jobId: string) => void | Promise<void>;
+  /** Return false when the durable record could not be removed. */
+  onAckFailure?: (outcome: LongPollJobOutcome) => boolean | void | Promise<boolean | void>;
+  /** Called when a retryable pending result ages out of its reuse window. Return false when the durable record could not be removed. */
+  onPendingAckExpired?: (jobId: string) => boolean | void | Promise<boolean | void>;
   /** Called if the loop itself exits unexpectedly. */
   onExit?: (error: unknown) => void;
 }
@@ -110,6 +121,8 @@ export function startLongPollClient(
   let connected = false;
   let backoffMs = INITIAL_BACKOFF_MS;
   let pollAbort: AbortController | undefined;
+  /** Cancels the in-flight job's result delivery when the client stops. */
+  const stopController = new AbortController();
   let activeJob: Promise<LongPollJobOutcome> | undefined;
   let failureCount = 0;
   let lastError: string | undefined;
@@ -170,28 +183,64 @@ export function startLongPollClient(
     }
   };
 
-  const markAckSuccess = (jobId: string): void => {
-    pending.delete(jobId);
-    refreshAckCounters();
+  const markAckSuccess = (outcome: LongPollJobOutcome): void => {
     lastAckAt = Date.now();
+    if (outcome.localCleanupFailed) {
+      // The proxy has the result; only the local record survived. Keep the
+      // in-memory copy so it matches storage, and say what actually happened.
+      pending.set(outcome.jobId, {
+        jobId: outcome.jobId,
+        error: LOCAL_CLEANUP_ERROR,
+        lastAttemptAt: Date.now(),
+      });
+      refreshAckCounters();
+      lastAckError = LOCAL_CLEANUP_ERROR;
+      emit('degraded', LOCAL_CLEANUP_ERROR);
+      return;
+    }
+    pending.delete(outcome.jobId);
+    refreshAckCounters();
+    emitCurrent();
   };
 
-  const expirePendingAcks = (): void => {
+  let expiring = false;
+
+  const expirePendingAcks = async (): Promise<void> => {
+    if (expiring) return;
     const now = Date.now();
-    const expired: string[] = [];
-    for (const [jobId, summary] of pending) {
-      if (now - summary.lastAttemptAt <= LONG_POLL_ACK_RETRY_WINDOW_MS) continue;
-      pending.delete(jobId);
-      expired.push(jobId);
-    }
+    const expired = Array.from(pending.values()).filter(
+      (summary) => now - summary.lastAttemptAt > LONG_POLL_ACK_RETRY_WINDOW_MS,
+    );
     if (expired.length === 0) return;
-    refreshAckCounters();
-    for (const jobId of expired) {
-      void Promise.resolve()
-        .then(() => hooks.onPendingAckExpired?.(jobId))
-        .catch((error) => console.warn('[long-poll] pending-ack expiry hook failed:', error));
+
+    const hook = hooks.onPendingAckExpired;
+    if (!hook) {
+      for (const summary of expired) pending.delete(summary.jobId);
+      refreshAckCounters();
+      emitCurrent();
+      return;
     }
-    emitCurrent();
+
+    expiring = true;
+    try {
+      const results = await Promise.all(
+        expired.map(async (summary) => {
+          try {
+            return { jobId: summary.jobId, cleared: (await hook(summary.jobId)) !== false };
+          } catch (error) {
+            console.warn('[long-poll] pending-ack expiry hook failed:', error);
+            return { jobId: summary.jobId, cleared: false };
+          }
+        }),
+      );
+      const cleared = results.filter((result) => result.cleared);
+      if (cleared.length === 0) return;
+      for (const result of cleared) pending.delete(result.jobId);
+      refreshAckCounters();
+      emitCurrent();
+    } finally {
+      expiring = false;
+    }
   };
 
   const markAckFailure = (outcome: LongPollJobOutcome): void => {
@@ -199,6 +248,17 @@ export function startLongPollClient(
     if (outcome.ackRetryable === false) {
       // A terminal 4xx means the proxy has decided this result is invalid or
       // already known. Retrying forever would leave a permanent amber dot.
+      if (outcome.localCleanupFailed) {
+        pending.set(outcome.jobId, {
+          jobId: outcome.jobId,
+          error: LOCAL_CLEANUP_ERROR,
+          lastAttemptAt: Date.now(),
+        });
+        refreshAckCounters();
+        lastAckError = LOCAL_CLEANUP_ERROR;
+        emit('degraded', LOCAL_CLEANUP_ERROR);
+        return;
+      }
       pending.delete(outcome.jobId);
       refreshAckCounters();
       lastAckError = error;
@@ -237,7 +297,7 @@ export function startLongPollClient(
           continue;
         }
 
-        const jobPromise = handleJob(config, job, dispatch, hooks);
+        const jobPromise = handleJob(config, job, dispatch, hooks, stopController.signal);
         activeJob = jobPromise;
         let outcome: LongPollJobOutcome;
         try {
@@ -248,8 +308,7 @@ export function startLongPollClient(
         if (!running) break;
 
         if (outcome.ackOk) {
-          markAckSuccess(outcome.jobId);
-          emitCurrent();
+          markAckSuccess(outcome);
         } else {
           markAckFailure(outcome);
         }
@@ -274,7 +333,7 @@ export function startLongPollClient(
   // a dead worker stops heartbeating and the lease is never treated as proof.
   const heartbeat = setInterval(() => {
     if (!running) return;
-    expirePendingAcks();
+    void expirePendingAcks();
     emitCurrent();
   }, LONG_POLL_REQUEST_HEARTBEAT_MS);
 
@@ -282,6 +341,7 @@ export function startLongPollClient(
     console.error('[long-poll] loop crashed:', error);
     if (!running) return;
     running = false;
+    stopController.abort();
     clearInterval(heartbeat);
     failureCount += 1;
     lastError = error instanceof Error ? error.message : String(error);
@@ -298,6 +358,7 @@ export function startLongPollClient(
     stop: async () => {
       running = false;
       clearInterval(heartbeat);
+      stopController.abort();
       pollAbort?.abort();
       const inFlight = activeJob;
       if (inFlight) await inFlight.catch(() => undefined);
@@ -364,9 +425,13 @@ async function handleJob(
   job: PollJob,
   dispatch: DispatchFn,
   hooks: LongPollHooks,
+  signal?: AbortSignal,
 ): Promise<LongPollJobOutcome> {
   console.info('[long-poll] job received', { jobId: job.job_id });
 
+  // Read the provider before validation so a rejected payload is still
+  // attributed to the provider the proxy targeted.
+  const providerId = readRawProviderId(job.request);
   let request: AutomationRunRequest | undefined;
   let digest: string | undefined;
   let rejection: AutomationRunResponse | undefined;
@@ -386,6 +451,7 @@ async function handleJob(
           jobId: job.job_id,
           code: rejection.error.code,
           message: rejection.error.message,
+          ...(providerId ? { providerId } : {}),
         });
       } catch (hookError) {
         console.warn('[long-poll] rejection hook failed:', hookError);
@@ -429,7 +495,7 @@ async function handleJob(
     }
   }
 
-  const ack = await postResult(config, job.job_id, finalResponse);
+  const ack = await postResult(config, job.job_id, finalResponse, signal);
   const outcome: LongPollJobOutcome = {
     jobId: job.job_id,
     response: finalResponse,
@@ -438,11 +504,16 @@ async function handleJob(
     ...(digest ? { requestDigest: digest } : {}),
   };
 
+  // A hook returning false (or throwing) means the durable record outlived the
+  // in-memory one. Report that instead of pretending the cleanup succeeded.
+  let localCleanupFailed = false;
+
   if (ack.ok) {
     try {
-      await hooks.onResultDelivered?.(job.job_id);
+      if ((await hooks.onResultDelivered?.(job.job_id)) === false) localCleanupFailed = true;
     } catch (error) {
       console.warn('[long-poll] result-delivered hook failed:', error);
+      localCleanupFailed = true;
     }
   }
 
@@ -457,13 +528,14 @@ async function handleJob(
   } else {
     console.error('[long-poll] result delivery failed', { jobId: job.job_id, error: ack.error });
     try {
-      await hooks.onAckFailure?.(outcome);
+      if ((await hooks.onAckFailure?.(outcome)) === false) localCleanupFailed = true;
     } catch (error) {
       console.warn('[long-poll] ack-failure hook failed:', error);
+      localCleanupFailed = true;
     }
   }
 
-  return outcome;
+  return localCleanupFailed ? { ...outcome, localCleanupFailed: true } : outcome;
 }
 
 /** POST the result with a timeout and bounded retries for transient failures. */
@@ -471,15 +543,22 @@ async function postResult(
   config: LongPollConfig,
   jobId: string,
   response: AutomationRunResponse,
+  signal?: AbortSignal,
 ): Promise<{ ok: true } | { ok: false; error: string; retryable: boolean }> {
   const body = JSON.stringify({ job_id: jobId, result: response });
   let lastError = 'result POST failed';
 
   for (let attempt = 0; attempt <= RESULT_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (signal?.aborted) return stoppedAck();
     if (attempt > 0) await sleep(RESULT_RETRY_DELAYS_MS[attempt - 1]);
+    if (signal?.aborted) return stoppedAck();
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), RESULT_POST_TIMEOUT_MS);
+    const abortForStop = (): void => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener('abort', abortForStop, { once: true });
+
     try {
       const resp = await fetch(`${config.proxyUrl}/result`, {
         method: 'POST',
@@ -491,20 +570,42 @@ async function postResult(
         signal: controller.signal,
         redirect: 'error',
       });
-      if (resp.ok) return { ok: true };
+      if (resp.ok) {
+        if (attempt > 0) {
+          console.info('[long-poll] result POST succeeded after retry', {
+            jobId,
+            attempt: attempt + 1,
+          });
+        }
+        return { ok: true };
+      }
 
       lastError = `result POST failed: ${resp.status} ${resp.statusText}`;
       if (!isRetryableStatus(resp.status)) {
+        console.warn('[long-poll] result POST rejected', { jobId, status: resp.status });
         return { ok: false, error: lastError, retryable: false };
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     } finally {
       clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortForStop);
     }
+
+    if (signal?.aborted) return stoppedAck();
+    console.warn('[long-poll] result POST attempt failed', {
+      jobId,
+      attempt: attempt + 1,
+      error: lastError,
+    });
   }
 
   return { ok: false, error: lastError, retryable: true };
+}
+
+/** Delivery was cancelled by stop(); the proxy still owns the job. */
+function stoppedAck(): { ok: false; error: string; retryable: true } {
+  return { ok: false, error: STOPPED_DELIVERY_ERROR, retryable: true };
 }
 
 function isRetryableStatus(status: number): boolean {
