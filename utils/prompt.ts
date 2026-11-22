@@ -12,6 +12,22 @@ export interface PromptOptions extends WaitOptions {
   readonly kickoffTimeoutMs?: number;
 }
 
+/** Budget for the Send button to appear and enable after a programmatic fill. */
+const SEND_BUTTON_TIMEOUT_MS = 2_000;
+
+/**
+ * Notify editors that track keyboard activity. Gemini's composer shows and
+ * enables its Send button from key events only. `execCommand` and DOM writes
+ * fire `input` events, which Gemini ignores.
+ */
+function reportKeyboardActivity(editor: HTMLElement): void {
+  for (const type of ['keydown', 'keyup'] as const) {
+    editor.dispatchEvent(
+      new KeyboardEvent(type, { bubbles: true, cancelable: true, key: 'a', code: 'KeyA', keyCode: 65 }),
+    );
+  }
+}
+
 function toPromptError(code: 'PROMPT_NOT_FOUND' | 'SUBMIT_FAILED', e: unknown, step: 'fill-prompt' | 'submit'): AutomationErrorException {
   const reason = e instanceof WaitTimeoutError || e instanceof Error ? e.message : String(e);
   return new AutomationErrorException(code, reason, step);
@@ -67,6 +83,17 @@ export async function fillPrompt(
     editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
     editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
   }
+
+  reportKeyboardActivity(editor);
+}
+
+/** Return a send button that is present, enabled, and rendered. */
+function findEnabledSendButton(root: ParentNode, selectors: ProviderSelectors): HTMLElement | null {
+  const el = queryFirst(root, selectors.sendButton);
+  if (!(el instanceof HTMLElement)) return null;
+  if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return null;
+  if (el.getClientRects().length === 0) return null;
+  return el;
 }
 
 /**
@@ -79,9 +106,20 @@ export async function submitPrompt(
   selectors: ProviderSelectors,
   options: PromptOptions = {},
 ): Promise<void> {
-  const sendButton = queryFirst(root, selectors.sendButton);
+  // The Send button can appear one tick after the fill, when the editor's
+  // framework state updates. Wait for it before falling back to Enter.
+  let sendButton: HTMLElement | null = null;
+  try {
+    sendButton = await waitForCondition(
+      () => findEnabledSendButton(root, selectors),
+      'send button',
+      { timeoutMs: SEND_BUTTON_TIMEOUT_MS, intervalMs: options.intervalMs ?? 50 },
+    );
+  } catch {
+    sendButton = null;
+  }
 
-  if (sendButton instanceof HTMLElement) {
+  if (sendButton) {
     sendButton.click();
   } else {
     // Enter fallback on the editor.
