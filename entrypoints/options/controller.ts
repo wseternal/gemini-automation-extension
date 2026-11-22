@@ -296,7 +296,7 @@ export class SettingsController {
     if (pending.length > 0) {
       const first = pending[0];
       this.statusText.textContent +=
-        ` ${pending.length} result${pending.length === 1 ? '' : 's'} pending acknowledgement` +
+        ` ${pending.length} result${pending.length === 1 ? '' : 's'} record${pending.length === 1 ? '' : 's'} pending locally` +
         ` (job ${first.jobId}, last attempt ${new Date(first.lastAttemptAt).toLocaleTimeString()}): ${first.error}.`;
     }
 

@@ -307,7 +307,7 @@ export class PopupController {
     if (pending.length > 0) {
       const first = pending[0];
       tooltip +=
-        ` ${pending.length} result${pending.length === 1 ? '' : 's'} pending acknowledgement` +
+        ` ${pending.length} result${pending.length === 1 ? '' : 's'} record${pending.length === 1 ? '' : 's'} pending locally` +
         ` (job ${first.jobId}, last attempt ${new Date(first.lastAttemptAt).toLocaleTimeString()}): ${first.error}.`;
     }
     if (status.lastAckAt !== undefined) {

@@ -42,8 +42,8 @@ const RESULT_RETRY_DELAYS_MS = [500, 1_500] as const;
 const AUTH_HEADER = 'X-Bridge-Token';
 /** Ack error returned when stop() cancels an in-flight result delivery. */
 const STOPPED_DELIVERY_ERROR = 'client stopped before delivery';
-/** Pending-ack error shown when the proxy accepted a result but the local record stayed. */
-const LOCAL_CLEANUP_ERROR = 'result acknowledged; the local pending record could not be cleared';
+/** Pending-ack error shown when the durable record outlived the proxy exchange. */
+const LOCAL_CLEANUP_ERROR = 'the local pending record could not be cleared';
 
 /** Dispatch function type — provided by background.ts. */
 export type DispatchFn = (
