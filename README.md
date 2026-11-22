@@ -131,7 +131,7 @@ The settings page and popup show:
 
 The client runs in the MV3 service worker. A 1-minute `chrome.alarms` wake-up restarts the loop after suspension; the alarm exists only while the client is enabled and is cleared when it is disabled. The waiting loop refreshes `updatedAt` every 20 seconds, including while a long response is streaming, so a healthy run stays below the 90-second stale threshold. Before dispatch, the extension persists `{ jobId, requestDigest, receivedAt }` — metadata only, never the prompt or base64 file bytes — under `llm-automation/long-poll-lease` in `storage.session`. If the worker dies mid-job, the next worker clears that lease and logs it; **the proxy must redeliver unacknowledged jobs after its own lease TTL** (for example, 90 seconds). The extension does not blindly re-dispatch a persisted job, because that could duplicate side effects. A result persisted before an unacknowledged POST is reused only when both the redelivered `job_id` and the request digest match.
 
-`stop()` cancels the in-flight poll and the in-flight result POST, then waits for that job's hooks to settle before a replacement client starts. Popup and proxy runs are serialized globally in the background, and each content-script tab rejects a second concurrent run with `BUSY`.
+`stop()` cancels the in-flight poll and the in-flight result POST, but still waits for an automation dispatch already running to finish; that job's hooks then settle before a replacement client starts. Popup and proxy runs are serialized globally in the background, and each content-script tab rejects a second concurrent run with `BUSY`.
 
 ## Architecture
 

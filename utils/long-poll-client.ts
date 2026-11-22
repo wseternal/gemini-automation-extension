@@ -141,15 +141,19 @@ export function startLongPollClient(
   const sortedPending = (): LongPollPendingAckSummary[] =>
     Array.from(pending.values()).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt);
 
+  /** A record kept only because the local cleanup failed was already acknowledged. */
+  const isCleanupOnly = (summary: LongPollPendingAckSummary): boolean =>
+    summary.error === LOCAL_CLEANUP_ERROR;
+
   let ackFailures = pending.size;
   let lastAckError = latestPendingAckError();
 
   function latestPendingAckError(): string | undefined {
-    return sortedPending()[0]?.error;
+    return sortedPending().find((summary) => !isCleanupOnly(summary))?.error;
   }
 
   const refreshAckCounters = (): void => {
-    ackFailures = pending.size;
+    ackFailures = sortedPending().filter((summary) => !isCleanupOnly(summary)).length;
     lastAckError = latestPendingAckError();
   };
 
@@ -187,15 +191,15 @@ export function startLongPollClient(
     lastAckAt = Date.now();
     if (outcome.localCleanupFailed) {
       // The proxy has the result; only the local record survived. Keep the
-      // in-memory copy so it matches storage, and say what actually happened.
+      // in-memory copy so it matches storage, and list it without claiming a
+      // delivery failure or an unacknowledged result.
       pending.set(outcome.jobId, {
         jobId: outcome.jobId,
         error: LOCAL_CLEANUP_ERROR,
         lastAttemptAt: Date.now(),
       });
       refreshAckCounters();
-      lastAckError = LOCAL_CLEANUP_ERROR;
-      emit('degraded', LOCAL_CLEANUP_ERROR);
+      emitCurrent();
       return;
     }
     pending.delete(outcome.jobId);
@@ -255,8 +259,7 @@ export function startLongPollClient(
           lastAttemptAt: Date.now(),
         });
         refreshAckCounters();
-        lastAckError = LOCAL_CLEANUP_ERROR;
-        emit('degraded', LOCAL_CLEANUP_ERROR);
+        emitCurrent();
         return;
       }
       pending.delete(outcome.jobId);
