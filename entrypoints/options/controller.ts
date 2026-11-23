@@ -264,10 +264,13 @@ export class SettingsController {
         this.statusDot.className = 'status-dot status-dot-idle';
         this.statusText.textContent = 'Client is not active.';
         break;
-      case 'connecting':
+      case 'connecting': {
         this.statusDot.className = 'status-dot status-dot-connecting';
-        this.statusText.textContent = status.message ?? 'Connecting to the proxy…';
+        const retries = status.failureCount ? ` (${status.failureCount} consecutive)` : '';
+        const detail = status.lastError ? ` Last attempt: ${status.lastError}${retries}.` : '';
+        this.statusText.textContent = `${status.message ?? 'Connecting to the proxy…'}${detail}`;
         break;
+      }
       case 'polling': {
         this.statusDot.className = 'status-dot status-dot-ok';
         this.statusText.textContent = status.proxyUrl ? `Polling ${status.proxyUrl}.` : 'Client is active.';

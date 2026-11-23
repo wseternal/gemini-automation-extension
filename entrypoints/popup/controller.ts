@@ -281,7 +281,11 @@ export class PopupController {
       tooltip = 'Long-polling is off.';
     } else if (status.state === 'connecting') {
       variant = 'poll-status-connecting';
-      tooltip = `Long-polling is connecting${status.proxyUrl ? ` to ${status.proxyUrl}` : ''}.`;
+      const retries = status.failureCount ? ` (${status.failureCount} consecutive)` : '';
+      const detail = status.lastError
+        ? ` Last attempt: ${status.lastError}${retries}.`
+        : '.';
+      tooltip = `Long-polling is connecting${status.proxyUrl ? ` to ${status.proxyUrl}` : ''}.${detail}`;
     } else if (status.state === 'degraded') {
       variant = 'poll-status-degraded';
       const failures = status.ackFailures ? ` (${status.ackFailures} unacknowledged)` : '';
