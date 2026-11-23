@@ -57,11 +57,11 @@ The client calls the proxy directly from the extension service worker. All paths
 **Poll**
 
 ```http
-GET <proxyUrl>/poll?timeout=30
+GET <proxyUrl>/poll?timeout=30     # steady poll; the first poll after start uses timeout=2
 X-Bridge-Token: <token>        # only when configured
 ```
 
-The proxy should hold the request for up to 30 seconds. The first poll after start uses a 2-second probe hold. This confirms reachability fast before the steady 30-second poll begins. `204 No Content` means “no job”; the client waits 500 ms before polling again to avoid a hot loop.
+The proxy should hold the request for up to the requested `timeout`. The first poll after start uses a 2-second probe hold. Later polls use the 30-second hold. The proxy must honor the requested `timeout` so the probe returns fast. If it ignores the parameter and always holds the full window, the first status refresh waits out that hold. `204 No Content` means “no job”; the client waits 500 ms before polling again to avoid a hot loop.
 
 `200 OK` returns one job:
 
