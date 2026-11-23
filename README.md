@@ -61,7 +61,7 @@ GET <proxyUrl>/poll?timeout=30
 X-Bridge-Token: <token>        # only when configured
 ```
 
-The proxy should hold the request for up to 30 seconds. `204 No Content` means “no job”; the client waits 500 ms before polling again to avoid a hot loop.
+The proxy should hold the request for up to 30 seconds. The first poll after start uses a 2-second probe hold. This confirms reachability fast before the steady 30-second poll begins. `204 No Content` means “no job”; the client waits 500 ms before polling again to avoid a hot loop.
 
 `200 OK` returns one job:
 

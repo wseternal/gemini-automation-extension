@@ -33,6 +33,8 @@ import {
 import { sleep } from './dom-wait';
 
 const DEFAULT_POLL_TIMEOUT_S = 30;
+/** Short hold for the first poll after start, so reachability shows promptly. */
+const PROBE_POLL_TIMEOUT_S = 2;
 const POLL_TRANSPORT_MARGIN_MS = 10_000;
 const IDLE_POLL_DELAY_MS = 500;
 const INITIAL_BACKOFF_MS = 1_000;
@@ -119,6 +121,8 @@ export function startLongPollClient(
 ): { stop: () => Promise<void>; clearPendingAcks: () => Promise<number> } {
   let running = true;
   let connected = false;
+  /** The first poll after start uses a short hold to confirm reachability fast. */
+  let probePoll = true;
   let backoffMs = INITIAL_BACKOFF_MS;
   let pollAbort: AbortController | undefined;
   /** Cancels the in-flight job's result delivery when the client stops. */
@@ -283,7 +287,9 @@ export function startLongPollClient(
     while (running) {
       try {
         pollAbort = new AbortController();
-        const job = await pollForJob(config, pollAbort.signal);
+        const timeoutS = probePoll ? PROBE_POLL_TIMEOUT_S : DEFAULT_POLL_TIMEOUT_S;
+        probePoll = false;
+        const job = await pollForJob(config, pollAbort.signal, timeoutS);
         if (!running) break;
 
         // Any successful poll (including 204) proves the transport is healthy.
@@ -386,11 +392,15 @@ export function startLongPollClient(
 }
 
 /** Poll the server for a pending job. Returns null on 204 No Content. */
-async function pollForJob(config: LongPollConfig, outer?: AbortSignal): Promise<PollJob | null> {
+async function pollForJob(
+  config: LongPollConfig,
+  outer: AbortSignal | undefined,
+  timeoutS: number,
+): Promise<PollJob | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
-    (DEFAULT_POLL_TIMEOUT_S * 1_000) + POLL_TRANSPORT_MARGIN_MS,
+    (timeoutS * 1_000) + POLL_TRANSPORT_MARGIN_MS,
   );
   const abort = () => controller.abort();
   if (outer?.aborted) {
@@ -401,7 +411,7 @@ async function pollForJob(config: LongPollConfig, outer?: AbortSignal): Promise<
 
   try {
     const resp = await fetch(
-      `${config.proxyUrl}/poll?timeout=${DEFAULT_POLL_TIMEOUT_S}`,
+      `${config.proxyUrl}/poll?timeout=${timeoutS}`,
       { signal: controller.signal, headers: authHeaders(config.token), redirect: 'error' },
     );
     if (resp.status === 204) return null;
