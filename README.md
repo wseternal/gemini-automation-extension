@@ -124,8 +124,8 @@ The client requires a 2xx response. It tries up to three times (8 s per attempt,
 The settings page and popup show:
 
 - **Green** — polling (`polling`).
-- **Amber** — connecting (`connecting`) or one or more results are unacknowledged (`degraded`).
-- **Red** — transport, protocol, or settings error (`error`); the status text distinguishes the kind.
+- **Amber** — connecting (`connecting`). A transient proxy connection failure that is retrying stays amber, and the label shows the last attempt and consecutive count. Amber also covers one or more unacknowledged results (`degraded`).
+- **Red** — protocol or settings error (`error`); the status text distinguishes the kind.
 - **Grey** — disabled.
 - **Grey or hollow** — no status yet, or the last report is older than 90 seconds (the worker may be suspended).
 

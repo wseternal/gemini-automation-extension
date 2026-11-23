@@ -182,10 +182,13 @@ export function startLongPollClient(
   };
 
   const emitCurrent = (message?: string): void => {
-    if (failureCount > 0) {
+    if (failureCount > 0 && lastErrorKind !== 'transport') {
       emit('error', message ?? lastError);
     } else if (ackFailures > 0) {
       emit('degraded', message ?? `Result delivery failed: ${lastAckError ?? 'unknown error'}`);
+    } else if (failureCount > 0) {
+      // A transient transport failure is still a retry, not a terminal error.
+      emit('connecting', message);
     } else {
       emit(connected ? 'polling' : 'connecting', message);
     }
@@ -329,7 +332,7 @@ export function startLongPollClient(
         failureCount += 1;
         lastError = message;
         lastErrorKind = kind;
-        emit('error', message);
+        emitCurrent();
         await sleep(backoffMs);
         backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
       }
